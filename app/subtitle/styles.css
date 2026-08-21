@@ -1,0 +1,142 @@
+:root {
+  --cloud-background-image: url("./assets/yukino-floral-cloud-v2.png");
+  --cloud-text-color: #513746;
+  --cloud-font-family: "Microsoft YaHei UI", "Noto Sans CJK SC", sans-serif;
+  --cloud-font-size: 16px;
+  --cloud-padding-top: 48px;
+  --cloud-padding-side: 58px;
+  --cloud-padding-bottom: 54px;
+  --cloud-shadow-y: 7px;
+  --cloud-shadow-blur: 14px;
+  --cloud-enter-y: 10px;
+  --cloud-exit-y: -8px;
+  --cloud-inner-shape: polygon(
+    50.00% 11.96%, 51.89% 11.68%, 53.79% 11.80%, 55.68% 12.33%,
+    57.59% 12.95%, 59.45% 13.98%, 61.30% 15.21%, 62.97% 17.09%,
+    64.53% 19.23%, 65.94% 21.67%, 67.50% 23.91%, 71.70% 23.00%,
+    75.64% 23.70%, 78.19% 26.65%, 80.63% 30.19%, 83.04% 34.27%,
+    87.58% 38.23%, 89.09% 43.92%, 88.64% 50.00%, 84.26% 55.33%,
+    80.27% 59.49%, 76.63% 62.68%, 73.94% 65.48%, 71.25% 67.61%,
+    69.42% 69.93%, 67.25% 71.46%, 64.16% 71.11%, 62.31% 71.87%,
+    60.96% 73.20%, 59.61% 74.37%, 58.13% 75.03%, 56.77% 75.81%,
+    55.36% 76.16%, 53.99% 76.48%, 52.63% 76.48%, 51.31% 76.57%,
+    50.00% 76.46%, 48.72% 76.04%, 47.45% 75.75%, 46.19% 75.25%,
+    44.97% 74.57%, 43.81% 73.60%, 42.64% 72.64%, 41.49% 71.59%,
+    40.08% 71.00%, 37.86% 71.57%, 35.02% 72.34%, 33.10% 71.03%,
+    31.46% 69.02%, 30.22% 66.39%, 28.92% 63.63%, 25.45% 61.69%,
+    24.67% 57.94%, 21.76% 54.39%, 20.87% 50.00%, 17.11% 44.89%,
+    19.55% 40.46%, 19.50% 35.48%, 20.78% 31.10%, 22.90% 27.54%,
+    25.66% 25.03%, 28.59% 23.36%, 31.99% 23.15%, 35.28% 23.85%,
+    37.16% 22.81%, 38.30% 20.32%, 39.74% 18.43%, 41.25% 16.68%,
+    42.86% 15.15%, 44.57% 13.97%, 46.32% 12.95%, 48.14% 12.31%
+  );
+  --cloud-shadow: drop-shadow(0 var(--cloud-shadow-y) var(--cloud-shadow-blur) rgba(215, 105, 148, 0.2));
+  --cloud-enter-duration: 180ms;
+  --cloud-exit-duration: 260ms;
+}
+
+* {
+  box-sizing: border-box;
+  user-select: none;
+}
+
+html,
+body {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  background: transparent !important;
+  background-color: transparent !important;
+  pointer-events: none;
+}
+
+body {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.cloud {
+  position: relative;
+  isolation: isolate;
+  display: flex;
+  width: 100%;
+  height: 100%;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  padding:
+    var(--cloud-padding-top)
+    var(--cloud-padding-side)
+    var(--cloud-padding-bottom);
+  color: var(--cloud-text-color);
+  filter: var(--cloud-shadow);
+  opacity: 0;
+  transform: translateY(var(--cloud-enter-y)) scale(0.96);
+  transition:
+    opacity var(--cloud-enter-duration) ease,
+    transform var(--cloud-enter-duration) cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.cloud::before,
+.cloud::after {
+  content: "";
+  position: absolute;
+  pointer-events: none;
+}
+
+.cloud::before {
+  z-index: 0;
+  inset: 0;
+  background: #fffdfd;
+  clip-path: var(--cloud-inner-shape);
+  transform-origin: center;
+}
+
+.cloud::after {
+  z-index: 1;
+  inset: 0;
+  background-image: var(--cloud-background-image);
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: 100% 100%;
+  transform-origin: center;
+  transition: transform 180ms ease;
+}
+
+.cloud.tail-right::before,
+.cloud.tail-right::after {
+  transform: scaleX(-1);
+}
+
+.cloud.visible {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+
+.cloud.leaving {
+  opacity: 0;
+  transform: translateY(var(--cloud-exit-y)) scale(0.97);
+  transition-duration: var(--cloud-exit-duration);
+}
+
+.subtitle-text {
+  position: relative;
+  z-index: 2;
+  width: 100%;
+  background: transparent;
+  font-family: var(--cloud-font-family);
+  font-size: var(--cloud-font-size);
+  font-weight: 600;
+  line-height: 1.55;
+  letter-spacing: 0.02em;
+  text-align: center;
+  overflow-wrap: anywhere;
+  text-wrap: balance;
+  transition: opacity 120ms ease;
+}
+
+.subtitle-text.changing {
+  opacity: 0;
+}

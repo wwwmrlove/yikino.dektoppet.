@@ -1,0 +1,31 @@
+:root {
+  color-scheme: light;
+  font-family: "Microsoft YaHei UI", "Segoe UI", sans-serif;
+  color: #513d49;
+  background: #fff8fb;
+}
+
+* { box-sizing: border-box; }
+
+body { margin: 0; background: radial-gradient(circle at 90% 0%, #ffe5ef, transparent 38%), #fff8fb; }
+
+main { padding: 25px 28px 22px; }
+
+.eyebrow { color: #d681a0; font-size: 11px; font-weight: 700; letter-spacing: .16em; }
+h1 { margin: 5px 0 5px; color: #4c3743; font-size: 25px; font-weight: 650; }
+.lead { margin: 0 0 20px; color: #876c7a; font-size: 13px; line-height: 1.65; }
+label { display: block; margin: 0 0 7px; font-size: 13px; font-weight: 650; }
+.entry-row { display: flex; gap: 8px; }
+input { flex: 1; min-width: 0; border: 1px solid #edcad8; border-radius: 9px; padding: 10px 12px; outline: none; color: #513d49; background: rgba(255,255,255,.9); font: inherit; }
+input:focus { border-color: #de8fab; box-shadow: 0 0 0 3px rgba(222,143,171,.13); }
+button { border: 1px solid #e6becd; border-radius: 9px; padding: 9px 14px; color: #674d5a; background: #fff; font: inherit; cursor: pointer; }
+button:hover { background: #fff1f6; }
+button:disabled { cursor: wait; opacity: .55; }
+.primary { border-color: #de8fab; color: white; background: #df8fac; }
+.primary:hover { background: #d77d9d; }
+.weather-card { margin-top: 16px; min-height: 75px; border: 1px solid #f0d8e1; border-radius: 12px; padding: 13px 15px; background: rgba(255,255,255,.72); }
+.status-title { color: #5b414e; font-size: 15px; font-weight: 650; }
+.status-detail { margin-top: 6px; color: #8a6f7c; font-size: 12px; line-height: 1.55; }
+.actions { display: flex; gap: 8px; margin-top: 13px; }
+.quiet { margin-left: auto; border-color: transparent; background: transparent; }
+.message { min-height: 18px; margin: 10px 2px 0; color: #bd567d; font-size: 12px; }

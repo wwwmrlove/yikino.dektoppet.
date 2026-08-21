@@ -1,0 +1,17 @@
+{
+  "sourceArchive": "D:\\Desktop\\yukino voice\\参考音频\\Yukino.zip",
+  "sourceEntry": "Yukino/segment_131_S203.wav",
+  "output": "C:\\Users\\kunku\\Documents\\ChatGPT\\yukino\\services\\voice-reference\\reference.wav",
+  "promptText": "それに、不信任になるようなひどい演説は、一色さんにも迷惑がかかるわ。",
+  "promptLanguage": "ja",
+  "metrics": {
+    "duration": 4.98,
+    "sampleRate": 44100,
+    "channels": 2,
+    "rms": 0.04605,
+    "peak": 0.30045,
+    "quietRatio": 0.34523,
+    "clippedRatio": 0.0,
+    "score": 7.24236
+  }
+}

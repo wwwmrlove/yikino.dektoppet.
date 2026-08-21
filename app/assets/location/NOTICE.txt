@@ -1,0 +1,10 @@
+China administrative location index
+
+Derived from cnmetlab/cnmaps-data:
+https://github.com/cnmetlab/cnmaps-data
+
+Copyright (c) 2026 Clarmy
+Licensed under the MIT License.
+
+Administrative boundary source metadata in the dataset identifies Amap (高德).
+Only province/city/district names and source geometry paths are retained here.

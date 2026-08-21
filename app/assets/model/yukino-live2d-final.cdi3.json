@@ -1,0 +1,272 @@
+{
+	"Version": 3,
+	"Parameters": [
+		{
+			"Id": "ParamAngleX",
+			"GroupId": "",
+			"Name": "角度 X"
+		},
+		{
+			"Id": "ParamAngleY",
+			"GroupId": "",
+			"Name": "角度 Y"
+		},
+		{
+			"Id": "ParamAngleZ",
+			"GroupId": "",
+			"Name": "角度 Z"
+		},
+		{
+			"Id": "ParamEyeLOpen",
+			"GroupId": "",
+			"Name": "左眼 开闭"
+		},
+		{
+			"Id": "ParamEyeLSmile",
+			"GroupId": "",
+			"Name": "左眼 微笑"
+		},
+		{
+			"Id": "ParamEyeROpen",
+			"GroupId": "",
+			"Name": "右眼 开闭"
+		},
+		{
+			"Id": "ParamEyeRSmile",
+			"GroupId": "",
+			"Name": "右眼 微笑"
+		},
+		{
+			"Id": "ParamEyeBallX",
+			"GroupId": "",
+			"Name": "眼珠 X"
+		},
+		{
+			"Id": "ParamEyeBallY",
+			"GroupId": "",
+			"Name": "眼珠 Y"
+		},
+		{
+			"Id": "ParamBrowLY",
+			"GroupId": "",
+			"Name": "左眉 上下"
+		},
+		{
+			"Id": "ParamBrowRY",
+			"GroupId": "",
+			"Name": "右眉 上下"
+		},
+		{
+			"Id": "ParamBrowLX",
+			"GroupId": "",
+			"Name": "左眉 左右"
+		},
+		{
+			"Id": "ParamBrowRX",
+			"GroupId": "",
+			"Name": "右眉 左右"
+		},
+		{
+			"Id": "ParamBrowLAngle",
+			"GroupId": "",
+			"Name": "左眉 角度"
+		},
+		{
+			"Id": "ParamBrowRAngle",
+			"GroupId": "",
+			"Name": "右眉 角度"
+		},
+		{
+			"Id": "ParamBrowLForm",
+			"GroupId": "",
+			"Name": "左眉 変形"
+		},
+		{
+			"Id": "ParamBrowRForm",
+			"GroupId": "",
+			"Name": "右眉 変形"
+		},
+		{
+			"Id": "ParamMouthForm",
+			"GroupId": "",
+			"Name": "嘴 变形"
+		},
+		{
+			"Id": "ParamMouthOpenY",
+			"GroupId": "",
+			"Name": "嘴 开闭"
+		},
+		{
+			"Id": "ParamCheek",
+			"GroupId": "",
+			"Name": "脸颊泛红"
+		},
+		{
+			"Id": "ParamBodyAngleX",
+			"GroupId": "",
+			"Name": "身体旋转 X"
+		},
+		{
+			"Id": "ParamBodyAngleY",
+			"GroupId": "",
+			"Name": "身体旋转 Y"
+		},
+		{
+			"Id": "ParamBodyAngleZ",
+			"GroupId": "",
+			"Name": "身体旋转 Z"
+		},
+		{
+			"Id": "ParamExpression",
+			"GroupId": "",
+			"Name": "表情切换"
+		},
+		{
+			"Id": "ParamBreath",
+			"GroupId": "",
+			"Name": "呼吸"
+		},
+		{
+			"Id": "ParamHairFront",
+			"GroupId": "",
+			"Name": "摇动 前发"
+		},
+		{
+			"Id": "ParamHairSide",
+			"GroupId": "",
+			"Name": "摇动 侧发"
+		},
+		{
+			"Id": "ParamHairBack",
+			"GroupId": "",
+			"Name": "摇动 后发"
+		}
+	],
+	"ParameterGroups": [],
+	"Parts": [
+		{
+			"Id": "Part",
+			"Name": "00_HAIR_OVER_FACE"
+		},
+		{
+			"Id": "Part2",
+			"Name": "01_BROWS_VARIANTS"
+		},
+		{
+			"Id": "Part3",
+			"Name": "02_EYES_VARIANTS"
+		},
+		{
+			"Id": "Part4",
+			"Name": "03_MOUTH_VARIANTS"
+		},
+		{
+			"Id": "Part5",
+			"Name": "04_CHARACTER_BASE_CLEAN"
+		},
+		{
+			"Id": "BROW_06_ANNOYED",
+			"Name": "BROW_06_ANNOYED"
+		},
+		{
+			"Id": "BROW_05_WORRIED",
+			"Name": "BROW_05_WORRIED"
+		},
+		{
+			"Id": "BROW_04_RAISED",
+			"Name": "BROW_04_RAISED"
+		},
+		{
+			"Id": "BROW_03_SOFT",
+			"Name": "BROW_03_SOFT"
+		},
+		{
+			"Id": "BROW_02_NEUTRAL_B",
+			"Name": "BROW_02_NEUTRAL_B"
+		},
+		{
+			"Id": "BROW_01_NEUTRAL_A",
+			"Name": "BROW_01_NEUTRAL_A"
+		},
+		{
+			"Id": "BROW_00_DEFAULT_EXACT",
+			"Name": "BROW_00_DEFAULT_EXACT"
+		},
+		{
+			"Id": "EYE_90_COMPONENTS_FOR_MESH",
+			"Name": "EYE_90_COMPONENTS_FOR_MESH"
+		},
+		{
+			"Id": "EYE_03_CLOSED",
+			"Name": "EYE_03_CLOSED"
+		},
+		{
+			"Id": "EYE_02_HALF",
+			"Name": "EYE_02_HALF"
+		},
+		{
+			"Id": "EYE_01_OPEN",
+			"Name": "EYE_01_OPEN"
+		},
+		{
+			"Id": "EYE_00_DEFAULT_EXACT",
+			"Name": "EYE_00_DEFAULT_EXACT"
+		},
+		{
+			"Id": "MOUTH_07_ROUNDED_VOWEL",
+			"Name": "MOUTH_07_ROUNDED_VOWEL"
+		},
+		{
+			"Id": "MOUTH_06_WIDE_OPEN",
+			"Name": "MOUTH_06_WIDE_OPEN"
+		},
+		{
+			"Id": "MOUTH_05_MEDIUM_OPEN",
+			"Name": "MOUTH_05_MEDIUM_OPEN"
+		},
+		{
+			"Id": "MOUTH_04_SMALL_OPEN",
+			"Name": "MOUTH_04_SMALL_OPEN"
+		},
+		{
+			"Id": "MOUTH_03_TROUBLED_FLAT",
+			"Name": "MOUTH_03_TROUBLED_FLAT"
+		},
+		{
+			"Id": "MOUTH_02_SMILE",
+			"Name": "MOUTH_02_SMILE"
+		},
+		{
+			"Id": "MOUTH_01_CLOSED_NEUTRAL",
+			"Name": "MOUTH_01_CLOSED_NEUTRAL"
+		},
+		{
+			"Id": "MOUTH_00_DEFAULT_EXACT",
+			"Name": "MOUTH_00_DEFAULT_EXACT"
+		},
+		{
+			"Id": "LOWER_LID",
+			"Name": "LOWER_LID"
+		},
+		{
+			"Id": "UPPER_LID",
+			"Name": "UPPER_LID"
+		},
+		{
+			"Id": "HIGHLIGHTS",
+			"Name": "HIGHLIGHTS"
+		},
+		{
+			"Id": "PUPIL",
+			"Name": "PUPIL"
+		},
+		{
+			"Id": "IRIS",
+			"Name": "IRIS"
+		},
+		{
+			"Id": "SCLERA",
+			"Name": "SCLERA"
+		}
+	]
+}

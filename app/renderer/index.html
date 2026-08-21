@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Yukino Desktop Pet</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <canvas id="pet-canvas" aria-label="雪乃桌宠"></canvas>
+    <div id="status" class="status">正在载入雪乃……</div>
+    <div id="hint" class="hint">拖动移动 · 滚轮缩放 · 右键菜单</div>
+    <script>window.process = { env: { NODE_ENV: 'production' } };</script>
+    <script src="../vendor/live2dcubismcore.min.js"></script>
+    <script src="../node_modules/pixi.js/dist/pixi.js"></script>
+    <script src="../node_modules/untitled-pixi-live2d-engine/dist/cubism.js"></script>
+    <script src="renderer.js"></script>
+  </body>
+</html>

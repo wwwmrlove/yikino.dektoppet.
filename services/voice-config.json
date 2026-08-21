@@ -1,0 +1,40 @@
+{
+  "language": "ja",
+  "referenceArchive": "D:\\Desktop\\yukino voice\\参考音频\\Yukino.zip",
+  "profiles": {
+    "weak_01": {
+      "gptWeights": "D:\\Desktop\\yukino voice\\GPT_weights\\Yukino_Weak-e25.ckpt",
+      "sovitsWeights": "D:\\Desktop\\yukino voice\\SoVITS_weights\\Yukino_Weak_01.pth"
+    },
+    "weak_02": {
+      "gptWeights": "D:\\Desktop\\yukino voice\\GPT_weights\\Yukino_Weak-e25.ckpt",
+      "sovitsWeights": "D:\\Desktop\\yukino voice\\SoVITS_weights\\Yukino_Weak_02.pth"
+    },
+    "strong": {
+      "gptWeights": "D:\\Desktop\\yukino voice\\GPT_weights\\Yukino_Strong-e25.ckpt",
+      "sovitsWeights": "D:\\Desktop\\yukino voice\\SoVITS_weights\\Yukino_Strong.pth"
+    }
+  },
+  "tts": {
+    "textLang": "ja",
+    "promptLang": "ja",
+    "promptText": "それに、不信任になるようなひどい演説は、一色さんにも迷惑がかかるわ。",
+    "textSplitMethod": "cut0",
+    "speedFactor": 1.0,
+    "topK": 5,
+    "topP": 1.0,
+    "temperature": 1.0,
+    "repetitionPenalty": 1.35,
+    "seed": 20260825,
+    "candidateAttempts": 4,
+    "fragmentInterval": 0.08,
+    "splitBucket": false,
+    "quality": {
+      "maxDurationRatio": 1.85,
+      "maxGapRatio": 0.42,
+      "maxUnexpectedGapSeconds": 0.3
+    },
+    "mediaType": "wav",
+    "streamingMode": false
+  }
+}

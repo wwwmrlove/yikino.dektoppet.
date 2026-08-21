@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>主动行为设置</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main>
+    <div class="eyebrow">YUKINO · BEHAVIOR</div>
+    <h1>主动行为</h1>
+    <p class="lead">控制雪乃主动发言的频率、天气范围与安静时间。手动点播和点击回应不受总开关影响。</p>
+
+    <label class="switch-row">
+      <span><strong>允许主动发言</strong><small>关闭后仍可从右键菜单让雪乃说话</small></span>
+      <input id="enabled" type="checkbox">
+    </label>
+
+    <label for="frequency">发言频率</label>
+    <select id="frequency">
+      <option value="quiet">安静 · 随机间隔约 45–75 分钟</option>
+      <option value="normal">标准 · 随机间隔约 20–40 分钟</option>
+      <option value="chatty">活跃 · 随机间隔约 10–20 分钟</option>
+    </select>
+
+    <label for="weather-mode">主动天气提醒</label>
+    <select id="weather-mode">
+      <option value="severe">仅恶劣天气</option>
+      <option value="all">全部天气</option>
+      <option value="off">关闭主动天气提醒</option>
+    </select>
+
+    <label>安静时间</label>
+    <div class="time-row">
+      <input id="quiet-start" type="time" step="300">
+      <span>至</span>
+      <input id="quiet-end" type="time" step="300">
+    </div>
+    <p class="note">跨越午夜会自动识别，例如 23:30 至 07:00。</p>
+
+    <button id="save" class="primary">保存设置</button>
+    <p id="message" class="message" aria-live="polite"></p>
+  </main>
+  <script src="renderer.js"></script>
+</body>
+</html>

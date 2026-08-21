@@ -1,0 +1,352 @@
+[
+  {
+    "id": "morning_01",
+    "profile": "weak_01",
+    "path": "C:\\Users\\kunku\\Documents\\ChatGPT\\yukino\\app\\assets\\voice\\generated\\morning_01.wav",
+    "sampleRate": 32000,
+    "duration": 7.62
+  },
+  {
+    "id": "morning_02",
+    "profile": "weak_01",
+    "path": "C:\\Users\\kunku\\Documents\\ChatGPT\\yukino\\app\\assets\\voice\\generated\\morning_02.wav",
+    "sampleRate": 32000,
+    "duration": 8.7
+  },
+  {
+    "id": "morning_03",
+    "profile": "weak_01",
+    "path": "C:\\Users\\kunku\\Documents\\ChatGPT\\yukino\\app\\assets\\voice\\generated\\morning_03.wav",
+    "sampleRate": 32000,
+    "duration": 11.32
+  },
+  {
+    "id": "morning_04",
+    "profile": "weak_01",
+    "path": "C:\\Users\\kunku\\Documents\\ChatGPT\\yukino\\app\\assets\\voice\\generated\\morning_04.wav",
+    "sampleRate": 32000,
+    "duration": 7.04
+  },
+  {
+    "id": "noon_01",
+    "profile": "weak_01",
+    "path": "C:\\Users\\kunku\\Documents\\ChatGPT\\yukino\\app\\assets\\voice\\generated\\noon_01.wav",
+    "sampleRate": 32000,
+    "duration": 10.38
+  },
+  {
+    "id": "noon_02",
+    "profile": "weak_01",
+    "path": "C:\\Users\\kunku\\Documents\\ChatGPT\\yukino\\app\\assets\\voice\\generated\\noon_02.wav",
+    "sampleRate": 32000,
+    "duration": 11.02
+  },
+  {
+    "id": "afternoon_01",
+    "profile": "weak_01",
+    "path": "C:\\Users\\kunku\\Documents\\ChatGPT\\yukino\\app\\assets\\voice\\generated\\afternoon_01.wav",
+    "sampleRate": 32000,
+    "duration": 10.78
+  },
+  {
+    "id": "evening_01",
+    "profile": "weak_01",
+    "path": "C:\\Users\\kunku\\Documents\\ChatGPT\\yukino\\app\\assets\\voice\\generated\\evening_01.wav",
+    "sampleRate": 32000,
+    "duration": 9.18
+  },
+  {
+    "id": "evening_02",
+    "profile": "weak_01",
+    "path": "C:\\Users\\kunku\\Documents\\ChatGPT\\yukino\\app\\assets\\voice\\generated\\evening_02.wav",
+    "sampleRate": 32000,
+    "duration": 9.42
+  },
+  {
+    "id": "evening_03",
+    "profile": "weak_01",
+    "path": "C:\\Users\\kunku\\Documents\\ChatGPT\\yukino\\app\\assets\\voice\\generated\\evening_03.wav",
+    "sampleRate": 32000,
+    "duration": 8.16
+  },
+  {
+    "id": "welcome_home_01",
+    "profile": "weak_01",
+    "path": "C:\\Users\\kunku\\Documents\\ChatGPT\\yukino\\app\\assets\\voice\\generated\\welcome_home_01.wav",
+    "sampleRate": 32000,
+    "duration": 7.28
+  },
+  {
+    "id": "return_02",
+    "profile": "weak_01",
+    "path": "C:\\Users\\kunku\\Documents\\ChatGPT\\yukino\\app\\assets\\voice\\generated\\return_02.wav",
+    "sampleRate": 32000,
+    "duration": 8.26
+  },
+  {
+    "id": "return_03",
+    "profile": "weak_01",
+    "path": "C:\\Users\\kunku\\Documents\\ChatGPT\\yukino\\app\\assets\\voice\\generated\\return_03.wav",
+    "sampleRate": 32000,
+    "duration": 11.54
+  },
+  {
+    "id": "return_04",
+    "profile": "weak_01",
+    "path": "C:\\Users\\kunku\\Documents\\ChatGPT\\yukino\\app\\assets\\voice\\generated\\return_04.wav",
+    "sampleRate": 32000,
+    "duration": 10.74
+  },
+  {
+    "id": "return_05",
+    "profile": "weak_01",
+    "path": "C:\\Users\\kunku\\Documents\\ChatGPT\\yukino\\app\\assets\\voice\\generated\\return_05.wav",
+    "sampleRate": 32000,
+    "duration": 9.46
+  },
+  {
+    "id": "resume_01",
+    "profile": "weak_01",
+    "path": "C:\\Users\\kunku\\Documents\\ChatGPT\\yukino\\app\\assets\\voice\\generated\\resume_01.wav",
+    "sampleRate": 32000,
+    "duration": 13.06
+  },
+  {
+    "id": "worried_01",
+    "profile": "weak_01",
+    "path": "C:\\Users\\kunku\\Documents\\ChatGPT\\yukino\\app\\assets\\voice\\generated\\worried_01.wav",
+    "sampleRate": 32000,
+    "duration": 10.5
+  },
+  {
+    "id": "work_45_01",
+    "profile": "weak_01",
+    "path": "C:\\Users\\kunku\\Documents\\ChatGPT\\yukino\\app\\assets\\voice\\generated\\work_45_01.wav",
+    "sampleRate": 32000,
+    "duration": 10.98
+  },
+  {
+    "id": "work_45_02",
+    "profile": "weak_01",
+    "path": "C:\\Users\\kunku\\Documents\\ChatGPT\\yukino\\app\\assets\\voice\\generated\\work_45_02.wav",
+    "sampleRate": 32000,
+    "duration": 10.12
+  },
+  {
+    "id": "work_45_03",
+    "profile": "weak_01",
+    "path": "C:\\Users\\kunku\\Documents\\ChatGPT\\yukino\\app\\assets\\voice\\generated\\work_45_03.wav",
+    "sampleRate": 32000,
+    "duration": 14.06
+  },
+  {
+    "id": "work_90_01",
+    "profile": "weak_01",
+    "path": "C:\\Users\\kunku\\Documents\\ChatGPT\\yukino\\app\\assets\\voice\\generated\\work_90_01.wav",
+    "sampleRate": 32000,
+    "duration": 9.82
+  },
+  {
+    "id": "work_90_02",
+    "profile": "weak_01",
+    "path": "C:\\Users\\kunku\\Documents\\ChatGPT\\yukino\\app\\assets\\voice\\generated\\work_90_02.wav",
+    "sampleRate": 32000,
+    "duration": 12.9
+  },
+  {
+    "id": "soft_01",
+    "profile": "weak_01",
+    "path": "C:\\Users\\kunku\\Documents\\ChatGPT\\yukino\\app\\assets\\voice\\generated\\soft_01.wav",
+    "sampleRate": 32000,
+    "duration": 10.82
+  },
+  {
+    "id": "surprised_01",
+    "profile": "strong",
+    "path": "C:\\Users\\kunku\\Documents\\ChatGPT\\yukino\\app\\assets\\voice\\generated\\surprised_01.wav",
+    "sampleRate": 32000,
+    "duration": 6.4
+  },
+  {
+    "id": "click_01",
+    "profile": "weak_01",
+    "path": "C:\\Users\\kunku\\Documents\\ChatGPT\\yukino\\app\\assets\\voice\\generated\\click_01.wav",
+    "sampleRate": 32000,
+    "duration": 8.0
+  },
+  {
+    "id": "click_02",
+    "profile": "weak_01",
+    "path": "C:\\Users\\kunku\\Documents\\ChatGPT\\yukino\\app\\assets\\voice\\generated\\click_02.wav",
+    "sampleRate": 32000,
+    "duration": 7.04
+  },
+  {
+    "id": "click_03",
+    "profile": "weak_01",
+    "path": "C:\\Users\\kunku\\Documents\\ChatGPT\\yukino\\app\\assets\\voice\\generated\\click_03.wav",
+    "sampleRate": 32000,
+    "duration": 7.16
+  },
+  {
+    "id": "click_04",
+    "profile": "weak_01",
+    "path": "C:\\Users\\kunku\\Documents\\ChatGPT\\yukino\\app\\assets\\voice\\generated\\click_04.wav",
+    "sampleRate": 32000,
+    "duration": 10.56
+  },
+  {
+    "id": "double_click_01",
+    "profile": "strong",
+    "path": "C:\\Users\\kunku\\Documents\\ChatGPT\\yukino\\app\\assets\\voice\\generated\\double_click_01.wav",
+    "sampleRate": 32000,
+    "duration": 5.16
+  },
+  {
+    "id": "double_click_02",
+    "profile": "weak_01",
+    "path": "C:\\Users\\kunku\\Documents\\ChatGPT\\yukino\\app\\assets\\voice\\generated\\double_click_02.wav",
+    "sampleRate": 32000,
+    "duration": 9.9
+  },
+  {
+    "id": "annoyed_01",
+    "profile": "strong",
+    "path": "C:\\Users\\kunku\\Documents\\ChatGPT\\yukino\\app\\assets\\voice\\generated\\annoyed_01.wav",
+    "sampleRate": 32000,
+    "duration": 6.76
+  },
+  {
+    "id": "rapid_click_02",
+    "profile": "strong",
+    "path": "C:\\Users\\kunku\\Documents\\ChatGPT\\yukino\\app\\assets\\voice\\generated\\rapid_click_02.wav",
+    "sampleRate": 32000,
+    "duration": 8.7
+  },
+  {
+    "id": "rapid_click_03",
+    "profile": "strong",
+    "path": "C:\\Users\\kunku\\Documents\\ChatGPT\\yukino\\app\\assets\\voice\\generated\\rapid_click_03.wav",
+    "sampleRate": 32000,
+    "duration": 10.22
+  },
+  {
+    "id": "rapid_click_04",
+    "profile": "strong",
+    "path": "C:\\Users\\kunku\\Documents\\ChatGPT\\yukino\\app\\assets\\voice\\generated\\rapid_click_04.wav",
+    "sampleRate": 32000,
+    "duration": 8.22
+  },
+  {
+    "id": "rapid_click_05",
+    "profile": "strong",
+    "path": "C:\\Users\\kunku\\Documents\\ChatGPT\\yukino\\app\\assets\\voice\\generated\\rapid_click_05.wav",
+    "sampleRate": 32000,
+    "duration": 9.78
+  },
+  {
+    "id": "daily_01",
+    "profile": "weak_01",
+    "path": "C:\\Users\\kunku\\Documents\\ChatGPT\\yukino\\app\\assets\\voice\\generated\\daily_01.wav",
+    "sampleRate": 32000,
+    "duration": 11.86
+  },
+  {
+    "id": "daily_02",
+    "profile": "weak_01",
+    "path": "C:\\Users\\kunku\\Documents\\ChatGPT\\yukino\\app\\assets\\voice\\generated\\daily_02.wav",
+    "sampleRate": 32000,
+    "duration": 10.62
+  },
+  {
+    "id": "encouraging_01",
+    "profile": "weak_01",
+    "path": "C:\\Users\\kunku\\Documents\\ChatGPT\\yukino\\app\\assets\\voice\\generated\\encouraging_01.wav",
+    "sampleRate": 32000,
+    "duration": 13.46
+  },
+  {
+    "id": "random_01",
+    "profile": "weak_01",
+    "path": "C:\\Users\\kunku\\Documents\\ChatGPT\\yukino\\app\\assets\\voice\\generated\\random_01.wav",
+    "sampleRate": 32000,
+    "duration": 12.42
+  },
+  {
+    "id": "random_02",
+    "profile": "weak_01",
+    "path": "C:\\Users\\kunku\\Documents\\ChatGPT\\yukino\\app\\assets\\voice\\generated\\random_02.wav",
+    "sampleRate": 32000,
+    "duration": 11.18
+  },
+  {
+    "id": "random_03",
+    "profile": "weak_01",
+    "path": "C:\\Users\\kunku\\Documents\\ChatGPT\\yukino\\app\\assets\\voice\\generated\\random_03.wav",
+    "sampleRate": 32000,
+    "duration": 9.82
+  },
+  {
+    "id": "random_04",
+    "profile": "weak_01",
+    "path": "C:\\Users\\kunku\\Documents\\ChatGPT\\yukino\\app\\assets\\voice\\generated\\random_04.wav",
+    "sampleRate": 32000,
+    "duration": 10.16
+  },
+  {
+    "id": "random_05",
+    "profile": "weak_01",
+    "path": "C:\\Users\\kunku\\Documents\\ChatGPT\\yukino\\app\\assets\\voice\\generated\\random_05.wav",
+    "sampleRate": 32000,
+    "duration": 10.56
+  },
+  {
+    "id": "random_06",
+    "profile": "weak_01",
+    "path": "C:\\Users\\kunku\\Documents\\ChatGPT\\yukino\\app\\assets\\voice\\generated\\random_06.wav",
+    "sampleRate": 32000,
+    "duration": 10.68
+  },
+  {
+    "id": "random_07",
+    "profile": "weak_01",
+    "path": "C:\\Users\\kunku\\Documents\\ChatGPT\\yukino\\app\\assets\\voice\\generated\\random_07.wav",
+    "sampleRate": 32000,
+    "duration": 10.28
+  },
+  {
+    "id": "goodnight_01",
+    "profile": "weak_01",
+    "path": "C:\\Users\\kunku\\Documents\\ChatGPT\\yukino\\app\\assets\\voice\\generated\\goodnight_01.wav",
+    "sampleRate": 32000,
+    "duration": 8.56
+  },
+  {
+    "id": "late_02",
+    "profile": "weak_01",
+    "path": "C:\\Users\\kunku\\Documents\\ChatGPT\\yukino\\app\\assets\\voice\\generated\\late_02.wav",
+    "sampleRate": 32000,
+    "duration": 12.9
+  },
+  {
+    "id": "late_03",
+    "profile": "weak_01",
+    "path": "C:\\Users\\kunku\\Documents\\ChatGPT\\yukino\\app\\assets\\voice\\generated\\late_03.wav",
+    "sampleRate": 32000,
+    "duration": 7.92
+  },
+  {
+    "id": "late_04",
+    "profile": "weak_01",
+    "path": "C:\\Users\\kunku\\Documents\\ChatGPT\\yukino\\app\\assets\\voice\\generated\\late_04.wav",
+    "sampleRate": 32000,
+    "duration": 10.22
+  },
+  {
+    "id": "late_05",
+    "profile": "weak_01",
+    "path": "C:\\Users\\kunku\\Documents\\ChatGPT\\yukino\\app\\assets\\voice\\generated\\late_05.wav",
+    "sampleRate": 32000,
+    "duration": 12.26
+  }
+]

@@ -1,0 +1,47 @@
+{
+  "Version": 3,
+  "FileReferences": {
+    "Moc": "yukino-live2d-final.moc3",
+    "Textures": [
+      "yukino-live2d-final.2048/texture_00.png"
+    ],
+    "DisplayInfo": "yukino-live2d-final.cdi3.json",
+    "Expressions": [
+      { "Name": "default", "File": "expressions/00_default.exp3.json" },
+      { "Name": "half_blink", "File": "expressions/01_half_blink.exp3.json" },
+      { "Name": "closed", "File": "expressions/02_closed.exp3.json" },
+      { "Name": "soft_smile", "File": "expressions/03_soft_smile.exp3.json" },
+      { "Name": "annoyed", "File": "expressions/04_annoyed.exp3.json" },
+      { "Name": "surprised", "File": "expressions/05_surprised.exp3.json" },
+      { "Name": "worried", "File": "expressions/06_worried.exp3.json" },
+      { "Name": "speak_a", "File": "expressions/07_speak_a.exp3.json" },
+      { "Name": "speak_o", "File": "expressions/08_speak_o.exp3.json" }
+    ],
+    "Motions": {
+      "Idle": [
+        {
+          "File": "motions/idle_01.motion3.json",
+          "FadeInTime": 0.5,
+          "FadeOutTime": 0.5
+        }
+      ]
+    }
+  },
+  "Groups": [
+    {
+      "Target": "Parameter",
+      "Name": "EyeBlink",
+      "Ids": [
+        "ParamEyeLOpen",
+        "ParamEyeROpen"
+      ]
+    },
+    {
+      "Target": "Parameter",
+      "Name": "LipSync",
+      "Ids": [
+        "ParamMouthOpenY"
+      ]
+    }
+  ]
+}

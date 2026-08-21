@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>天气设置</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main>
+    <div class="eyebrow">YUKINO · WEATHER</div>
+    <h1>天气感知</h1>
+    <p class="lead">可精确到区县。雪乃会缓存当地天气，并在合适的时间偶尔提醒你。</p>
+    <label for="city">省 / 市 / 区县</label>
+    <div class="entry-row">
+      <input id="city" type="text" maxlength="60" placeholder="例如：北京市朝阳区、杭州市西湖区" autocomplete="off">
+      <button id="save" class="primary">保存</button>
+    </div>
+    <section id="weather-card" class="weather-card" aria-live="polite">
+      <div id="status-title" class="status-title">尚未设置城市</div>
+      <div id="status-detail" class="status-detail">天气功能当前不会主动发言。</div>
+    </section>
+    <div class="actions">
+      <button id="refresh">立即刷新</button>
+      <button id="disable" class="quiet">停用天气</button>
+    </div>
+    <p id="message" class="message" aria-live="polite"></p>
+  </main>
+  <script src="renderer.js"></script>
+</body>
+</html>

@@ -1,0 +1,19 @@
+{
+  "name": "yukino-desktop-pet",
+  "version": "1.4.0-rc.1",
+  "private": true,
+  "description": "Yukino Live2D desktop pet for Windows",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-packager . \"Yukino Desktop Pet\" --platform=win32 --arch=x64 --out=release --overwrite --prune=true"
+  },
+  "dependencies": {
+    "pixi.js": "8.19.0",
+    "untitled-pixi-live2d-engine": "1.3.5"
+  },
+  "devDependencies": {
+    "@electron/packager": "19.0.2",
+    "electron": "43.4.1"
+  }
+}

@@ -1,0 +1,4 @@
+minimumReleaseAgeExclude:
+  - electron@43.4.1
+onlyBuiltDependencies:
+  - electron

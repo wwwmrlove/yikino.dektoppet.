@@ -1,0 +1,12 @@
+{
+  "Type": "Live2D Expression",
+  "FadeInTime": 0.0,
+  "FadeOutTime": 0.0,
+  "Parameters": [
+    { "Id": "ParamExpression", "Value": 1, "Blend": "Overwrite" },
+    { "Id": "ParamMouthForm", "Value": 0.5, "Blend": "Overwrite" },
+    { "Id": "ParamMouthOpenY", "Value": 0, "Blend": "Overwrite" },
+    { "Id": "ParamEyeLOpen", "Value": 1.2, "Blend": "Multiply" },
+    { "Id": "ParamEyeROpen", "Value": 1.2, "Blend": "Multiply" }
+  ]
+}
