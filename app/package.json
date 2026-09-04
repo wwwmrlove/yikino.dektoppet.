@@ -6,7 +6,7 @@
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "dist": "electron-packager . \"Yukino Desktop Pet\" --platform=win32 --arch=x64 --out=release --overwrite --prune=true"
+    "dist": "node scripts/package-windows.mjs"
   },
   "dependencies": {
     "pixi.js": "8.19.0",

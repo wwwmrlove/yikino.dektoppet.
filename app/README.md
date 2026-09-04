@@ -50,9 +50,11 @@ pnpm dist
 若常规构建因 GitHub 网络超时而无法下载 Electron，可指定本机缓存：
 
 ```powershell
-electron-packager . "Yukino Desktop Pet" --platform=win32 --arch=x64 `
-  --out=release --overwrite --prune=true --electron-zip-dir="<Electron ZIP 缓存目录>"
+$env:ELECTRON_ZIP_DIR = "<Electron ZIP 缓存目录>"
+pnpm dist
 ```
+
+`scripts/package-windows.mjs` 只排除项目根目录的旧构建产物，不能使用会匹配依赖目录的宽泛 `dist` 过滤规则；否则会误删 Pixi 和 Live2D 引擎的浏览器脚本。
 
 ## 目录说明
 

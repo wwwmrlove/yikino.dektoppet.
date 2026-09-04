@@ -101,7 +101,7 @@ pnpm start
 pnpm dist
 ```
 
-如果 GitHub 下载暂时不可用，可使用本机 Electron ZIP 缓存，通过 `electron-packager --electron-zip-dir=<缓存目录>` 离线构建。
+如果 GitHub 下载暂时不可用，可先设置 `ELECTRON_ZIP_DIR=<缓存目录>`，再执行 `pnpm dist` 离线构建。Windows 构建统一使用 `app/scripts/package-windows.mjs` 的根目录精确过滤规则，避免误删 `node_modules` 内 Pixi 与 Live2D 引擎的 `dist` 浏览器脚本。
 
 ## 语音生成依赖
 
