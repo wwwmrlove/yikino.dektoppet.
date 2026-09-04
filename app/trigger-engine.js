@@ -27,9 +27,9 @@ const SEVERE_WEATHER_TRIGGERS = new Set([
 ]);
 
 const TRIGGER_COOLDOWNS_MS = Object.freeze({
-  click_single: 30 * 60 * 1000,
-  click_double: 30 * 60 * 1000,
-  click_rapid: 60 * 1000,
+  click_single: 45 * 1000,
+  click_double: 30 * 1000,
+  click_rapid: 20 * 1000,
   return_after_idle: 30 * 60 * 1000,
   return_after_long_idle: 45 * 60 * 1000,
   system_resume: 30 * 60 * 1000,

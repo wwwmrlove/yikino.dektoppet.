@@ -1,6 +1,6 @@
 'use strict';
 
-const { app, BrowserWindow, globalShortcut, ipcMain, Menu, powerMonitor, screen } = require('electron');
+const { app, BrowserWindow, globalShortcut, ipcMain, powerMonitor, screen } = require('electron');
 const fs = require('fs');
 const path = require('path');
 const { createTriggerEngine } = require('./trigger-engine');
@@ -12,6 +12,8 @@ const DEFAULT_WIDTH = 420;
 const DEFAULT_HEIGHT = 820;
 const BASE_SUBTITLE_WIDTH = 352;
 const BASE_SUBTITLE_HEIGHT = 198;
+const PET_MENU_WIDTH = 334;
+const PET_MENU_HEIGHT = 636;
 const STATE_FILE = 'window-state.json';
 const DIALOGUES_FILE = path.join(__dirname, 'assets', 'voice', 'dialogues.json');
 
@@ -25,6 +27,8 @@ let weatherService = null;
 let weatherSettingsWindow = null;
 let behaviorSettingsService = null;
 let behaviorSettingsWindow = null;
+let petMenuWindow = null;
+let petMenuReady = false;
 let alwaysOnTop = true;
 let clickThrough = false;
 let pointerOverPet = false;
@@ -101,6 +105,20 @@ function setClickThrough(enabled) {
   }
 }
 
+function setAlwaysOnTop(enabled) {
+  alwaysOnTop = Boolean(enabled);
+  if (petWindow && !petWindow.isDestroyed()) {
+    petWindow.setAlwaysOnTop(alwaysOnTop, 'screen-saver');
+  }
+  if (subtitleWindow && !subtitleWindow.isDestroyed()) {
+    subtitleWindow.setAlwaysOnTop(alwaysOnTop, 'screen-saver');
+  }
+  if (petMenuWindow && !petMenuWindow.isDestroyed()) {
+    petMenuWindow.setAlwaysOnTop(alwaysOnTop, 'screen-saver');
+  }
+  writeState({ alwaysOnTop });
+}
+
 function sendExpression(name) {
   if (petWindow && !petWindow.isDestroyed()) {
     petWindow.webContents.send('pet:expression', name);
@@ -134,11 +152,8 @@ function sendRandomSpeech() {
   sendSpeech(dialogues[Math.floor(Math.random() * dialogues.length)]);
 }
 
-function buildVoiceMenu() {
+function getVoiceGroups() {
   const dialogues = readDialogues();
-  if (!dialogues.length) return [{ label: '暂无可用台词', enabled: false }];
-
-  const randomDialogue = () => dialogues[Math.floor(Math.random() * dialogues.length)];
   const groups = [
     ['时间与天气', ['context']],
     ['分时问候', ['time']],
@@ -150,17 +165,14 @@ function buildVoiceMenu() {
     ['深夜与晚安', ['night']]
   ];
 
-  const submenu = [
-    { label: '随机台词', click: () => sendSpeech(randomDialogue()) },
-    { type: 'separator' }
-  ];
-  for (const [label, categories] of groups) {
-    const items = dialogues
+  return groups
+    .map(([label, categories]) => ({
+      label,
+      dialogues: dialogues
       .filter((dialogue) => categories.includes(dialogue.category))
-      .map((dialogue) => ({ label: dialogue.label, click: () => sendSpeech(dialogue) }));
-    if (items.length) submenu.push({ label, submenu: items });
-  }
-  return submenu;
+        .map((dialogue) => ({ id: dialogue.id, label: dialogue.label }))
+    }))
+    .filter((group) => group.dialogues.length);
 }
 
 function openWeatherSettings() {
@@ -227,9 +239,9 @@ function openBehaviorSettings() {
   });
 }
 
-function buildDebugTriggerItems() {
+function getDebugTriggers() {
   if (app.isPackaged || !triggerEngine) return [];
-  const triggers = [
+  return [
     ['早晨问候', 'time_morning'],
     ['离开后返回', 'return_after_idle'],
     ['休眠恢复', 'system_resume'],
@@ -238,17 +250,7 @@ function buildDebugTriggerItems() {
     ['连续点击', 'click_rapid'],
     ['日常随机', 'random_dialogue'],
     ['深夜晚安', 'time_late_night']
-  ];
-  return [
-    { type: 'separator' },
-    {
-      label: '测试自动触发（开发）',
-      submenu: triggers.map(([label, name]) => ({
-        label,
-        click: () => triggerEngine.requestTrigger(name, { force: true })
-      }))
-    }
-  ];
+  ].map(([label, name]) => ({ label, name }));
 }
 
 function positionSubtitleWindow() {
@@ -375,55 +377,145 @@ function startPointerPolling() {
   }, 50);
 }
 
+function petMenuState() {
+  const weather = weatherService?.getContext();
+  return {
+    alwaysOnTop,
+    clickThrough,
+    weatherReady: Boolean(weather),
+    weatherSummary: weather ? `${weather.city} · ${weather.label}` : '尚未设置天气地区',
+    voiceGroups: getVoiceGroups(),
+    debugTriggers: getDebugTriggers()
+  };
+}
+
+function hidePetMenu() {
+  if (petMenuWindow && !petMenuWindow.isDestroyed()) petMenuWindow.hide();
+}
+
+function createPetMenuWindow() {
+  if (petMenuWindow && !petMenuWindow.isDestroyed()) return;
+  petMenuReady = false;
+  petMenuWindow = new BrowserWindow({
+    width: PET_MENU_WIDTH,
+    height: PET_MENU_HEIGHT,
+    transparent: true,
+    frame: false,
+    resizable: false,
+    movable: false,
+    minimizable: false,
+    maximizable: false,
+    focusable: true,
+    show: false,
+    skipTaskbar: true,
+    alwaysOnTop,
+    hasShadow: false,
+    backgroundColor: '#00000000',
+    webPreferences: {
+      preload: path.join(__dirname, 'pet-menu-preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+      backgroundThrottling: false
+    }
+  });
+  petMenuWindow.setBackgroundColor('#00000000');
+  petMenuWindow.setMenuBarVisibility(false);
+  petMenuWindow.setAlwaysOnTop(alwaysOnTop, 'screen-saver');
+  petMenuWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  petMenuWindow.loadFile(path.join(__dirname, 'pet-menu', 'index.html'));
+  petMenuWindow.webContents.on('did-finish-load', () => {
+    petMenuReady = true;
+    petMenuWindow?.webContents.send('pet-menu:refresh', petMenuState());
+  });
+  petMenuWindow.on('blur', hidePetMenu);
+  petMenuWindow.on('closed', () => {
+    petMenuWindow = null;
+    petMenuReady = false;
+  });
+}
+
 function showPetMenu() {
-  const menu = Menu.buildFromTemplate([
-    { label: '恢复默认表情', click: () => sendExpression('default') },
-    { label: '温柔微笑', click: () => sendExpression('soft_smile') },
-    { label: '不高兴', click: () => sendExpression('annoyed') },
-    { label: '惊讶', click: () => sendExpression('surprised') },
-    { label: '担心', click: () => sendExpression('worried') },
-    { type: 'separator' },
-    { label: '随机说一句', click: sendRandomSpeech },
-    { label: '让雪乃说话', submenu: buildVoiceMenu() },
-    { type: 'separator' },
-    { label: '告诉我现在的时间', click: () => triggerEngine?.announceTime() },
-    {
-      label: weatherService?.getContext() ? '告诉我现在的天气' : '设置天气城市…',
-      click: () => {
-        if (!weatherService?.getContext() || !triggerEngine?.announceWeather()) openWeatherSettings();
-      }
-    },
-    { label: '天气设置…', click: openWeatherSettings },
-    { label: '主动行为设置…', click: openBehaviorSettings },
-    ...buildDebugTriggerItems(),
-    { type: 'separator' },
-    { label: '放大', click: () => petWindow.webContents.send('pet:scale-step', 0.1) },
-    { label: '缩小', click: () => petWindow.webContents.send('pet:scale-step', -0.1) },
-    { label: '恢复大小', click: () => petWindow.webContents.send('pet:scale-reset') },
-    { type: 'separator' },
-    {
-      label: '始终置顶',
-      type: 'checkbox',
-      checked: alwaysOnTop,
-      click: (item) => {
-        alwaysOnTop = item.checked;
-        petWindow.setAlwaysOnTop(alwaysOnTop, 'screen-saver');
-        if (subtitleWindow && !subtitleWindow.isDestroyed()) {
-          subtitleWindow.setAlwaysOnTop(alwaysOnTop, 'screen-saver');
-        }
-        writeState({ alwaysOnTop });
-      }
-    },
-    {
-      label: '鼠标穿透（Ctrl+Alt+Y 恢复）',
-      type: 'checkbox',
-      checked: clickThrough,
-      click: (item) => setClickThrough(item.checked)
-    },
-    { type: 'separator' },
-    { label: '退出桌宠', click: () => app.quit() }
-  ]);
-  menu.popup({ window: petWindow });
+  if (!petWindow || petWindow.isDestroyed()) return;
+  createPetMenuWindow();
+  if (!petMenuWindow || petMenuWindow.isDestroyed()) return;
+
+  const petBounds = petWindow.getBounds();
+  const display = screen.getDisplayMatching(petBounds);
+  const area = display.workArea;
+  const gap = 12;
+  const leftX = petBounds.x - PET_MENU_WIDTH - gap;
+  const rightX = petBounds.x + petBounds.width + gap;
+  let x;
+  if (leftX >= area.x + 8) x = leftX;
+  else if (rightX + PET_MENU_WIDTH <= area.x + area.width - 8) x = rightX;
+  else x = Math.min(
+    Math.max(screen.getCursorScreenPoint().x - Math.round(PET_MENU_WIDTH / 2), area.x + 8),
+    area.x + area.width - PET_MENU_WIDTH - 8
+  );
+  const cursorY = screen.getCursorScreenPoint().y;
+  const y = Math.min(
+    Math.max(cursorY - 38, area.y + 8),
+    area.y + area.height - PET_MENU_HEIGHT - 8
+  );
+  petMenuWindow.setBounds({ x, y, width: PET_MENU_WIDTH, height: PET_MENU_HEIGHT }, false);
+  setImmediate(() => {
+    if (!petMenuWindow || petMenuWindow.isDestroyed()) return;
+    if (petMenuReady) petMenuWindow.webContents.send('pet-menu:refresh', petMenuState());
+    petMenuWindow.show();
+    petMenuWindow.focus();
+  });
+}
+
+function runPetMenuAction(payload = {}) {
+  const action = String(payload.action || '');
+  const value = payload.value;
+  let keepOpen = false;
+
+  if (action === 'expression') {
+    if (['default', 'soft_smile', 'annoyed', 'surprised', 'worried'].includes(value)) {
+      sendExpression(value);
+    }
+  } else if (action === 'random-speech') {
+    sendRandomSpeech();
+  } else if (action === 'speak-dialogue') {
+    const dialogue = readDialogues().find((item) => item.id === value);
+    if (dialogue) sendSpeech(dialogue);
+  } else if (action === 'announce-time') {
+    triggerEngine?.announceTime();
+  } else if (action === 'announce-weather') {
+    if (!weatherService?.getContext() || !triggerEngine?.announceWeather()) openWeatherSettings();
+  } else if (action === 'weather-settings') {
+    openWeatherSettings();
+  } else if (action === 'behavior-settings') {
+    openBehaviorSettings();
+  } else if (action === 'scale-step') {
+    const amount = Number(value);
+    if (petWindow && !petWindow.isDestroyed() && [0.1, -0.1].includes(amount)) {
+      petWindow.webContents.send('pet:scale-step', amount);
+    }
+    keepOpen = true;
+  } else if (action === 'scale-reset') {
+    petWindow?.webContents.send('pet:scale-reset');
+    keepOpen = true;
+  } else if (action === 'always-on-top') {
+    setAlwaysOnTop(Boolean(value));
+    keepOpen = true;
+  } else if (action === 'click-through') {
+    setClickThrough(Boolean(value));
+    keepOpen = true;
+  } else if (action === 'debug-trigger' && !app.isPackaged) {
+    const allowed = getDebugTriggers().some((item) => item.name === value);
+    if (allowed) triggerEngine?.requestTrigger(value, { force: true });
+  } else if (action === 'quit') {
+    app.quit();
+  } else if (action === 'close') {
+    hidePetMenu();
+    return petMenuState();
+  }
+
+  if (!keepOpen) hidePetMenu();
+  return petMenuState();
 }
 
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
@@ -518,6 +610,7 @@ function createWindow() {
   });
   petWindow.on('move', () => {
     if (!petWindow || petWindow.isDestroyed()) return;
+    hidePetMenu();
     const [x, y] = petWindow.getPosition();
     writeState({ x, y });
     positionSubtitleWindow();
@@ -536,6 +629,7 @@ function createWindow() {
     if (behaviorSettingsWindow && !behaviorSettingsWindow.isDestroyed()) {
       behaviorSettingsWindow.destroy();
     }
+    if (petMenuWindow && !petMenuWindow.isDestroyed()) petMenuWindow.destroy();
     if (subtitleWindow && !subtitleWindow.isDestroyed()) subtitleWindow.destroy();
     petModelLayout = null;
     petWindow = null;
@@ -568,6 +662,8 @@ ipcMain.on('pet:move', (_event, payload) => {
 });
 
 ipcMain.on('pet:menu', () => showPetMenu());
+ipcMain.handle('pet-menu:get-state', () => petMenuState());
+ipcMain.handle('pet-menu:action', (_event, payload) => runPetMenuAction(payload));
 ipcMain.on('pet:scale', (_event, scale) => writeState({ modelScale: scale }));
 ipcMain.on('pet:layout', (_event, layout) => {
   const anchorX = Number(layout?.anchorX);

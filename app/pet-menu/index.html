@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>雪乃桌宠菜单</title>
+    <link rel="stylesheet" href="style.css">
+  </head>
+  <body>
+    <main class="panel" aria-label="雪乃桌宠菜单">
+      <header class="header">
+        <div>
+          <div class="eyebrow">YUKINO · DESKTOP PET</div>
+          <h1>现在想做什么？</h1>
+        </div>
+        <button class="icon-button" type="button" data-action="close" aria-label="关闭菜单">×</button>
+      </header>
+
+      <div id="weather-summary" class="weather-summary">正在读取天气状态…</div>
+
+      <section>
+        <h2>快捷互动</h2>
+        <div class="quick-grid">
+          <button type="button" class="primary" data-action="random-speech"><span>✦</span> 随机说一句</button>
+          <button type="button" data-action="announce-time"><span>◷</span> 现在时间</button>
+          <button id="weather-action" type="button" data-action="announce-weather"><span>☁</span> 当前天气</button>
+        </div>
+      </section>
+
+      <section>
+        <h2>表情</h2>
+        <div class="expression-grid">
+          <button type="button" data-action="expression" data-value="default">默认</button>
+          <button type="button" data-action="expression" data-value="soft_smile">微笑</button>
+          <button type="button" data-action="expression" data-value="annoyed">不高兴</button>
+          <button type="button" data-action="expression" data-value="surprised">惊讶</button>
+          <button type="button" data-action="expression" data-value="worried">担心</button>
+        </div>
+      </section>
+
+      <details class="library">
+        <summary><span>台词库</span><small>按情境选择已有语音</small></summary>
+        <div id="voice-groups" class="voice-groups"></div>
+      </details>
+
+      <section>
+        <h2>设置</h2>
+        <div class="settings-grid">
+          <button type="button" data-action="weather-settings">天气地区</button>
+          <button type="button" data-action="behavior-settings">主动行为</button>
+        </div>
+        <div class="scale-row" aria-label="人物大小">
+          <span>人物大小</span>
+          <div>
+            <button type="button" data-action="scale-step" data-value="-0.1" aria-label="缩小">−</button>
+            <button type="button" data-action="scale-reset">100%</button>
+            <button type="button" data-action="scale-step" data-value="0.1" aria-label="放大">＋</button>
+          </div>
+        </div>
+        <label class="switch-row">
+          <span><strong>始终置顶</strong><small>让雪乃保持在其他窗口上方</small></span>
+          <input id="always-on-top" type="checkbox">
+        </label>
+        <label class="switch-row">
+          <span><strong>鼠标穿透</strong><small>可用 Ctrl+Alt+Y 恢复操作</small></span>
+          <input id="click-through" type="checkbox">
+        </label>
+      </section>
+
+      <details id="debug-section" class="library hidden">
+        <summary><span>开发测试</span><small>手动触发行为事件</small></summary>
+        <div id="debug-triggers" class="voice-list"></div>
+      </details>
+
+      <footer>
+        <button type="button" class="danger" data-action="quit">退出桌宠</button>
+        <span>右键再次打开</span>
+      </footer>
+    </main>
+    <script src="renderer.js"></script>
+  </body>
+</html>

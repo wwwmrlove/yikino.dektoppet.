@@ -37,8 +37,9 @@ let isSpeaking = false;
 let expressionBeforeSpeech = 'default';
 let expressionBeforeSpeechExpiresAt = 0;
 let speechToken = 0;
-let interactionClickCount = 0;
+let interactionClicks = [];
 let interactionClickTimer = null;
+let rapidClickLockedUntil = 0;
 let mouthInvariantWarningShown = false;
 
 const HIT_MASK_RESOLUTION = 0.5;
@@ -49,6 +50,9 @@ const BLINK_INTERVAL_MAX_MS = 6000;
 const BLINK_CLOSE_MS = 85;
 const BLINK_HOLD_MS = 45;
 const BLINK_OPEN_MS = 125;
+const INTERACTION_SETTLE_MS = 360;
+const RAPID_CLICK_THRESHOLD = 3;
+const RAPID_CLICK_LOCK_MS = 900;
 
 const EXPRESSION_PARAMETERS = Object.freeze({
   default:     { ParamExpression: 0, ParamMouthForm: 0,    ParamMouthOpenY: 0,   ParamEyeLOpen: 1,   ParamEyeROpen: 1 },
@@ -59,7 +63,7 @@ const EXPRESSION_PARAMETERS = Object.freeze({
   // The surprised idle pose uses the medium-open artwork. Keeping this at 1
   // selects the wide-open drawable range and makes the medium mouth disappear.
   surprised:   { ParamExpression: 4, ParamMouthForm: 0,    ParamMouthOpenY: 0.6, ParamEyeLOpen: 1.2, ParamEyeROpen: 1.2 },
-  worried:     { ParamExpression: 5, ParamMouthForm: 0,    ParamMouthOpenY: 0.3, ParamEyeLOpen: 1.2, ParamEyeROpen: 1.2 },
+  worried:     { ParamExpression: 5, ParamMouthForm: 0,    ParamMouthOpenY: 0,   ParamEyeLOpen: 1.2, ParamEyeROpen: 1.2 },
   speak_a:     { ParamExpression: 1, ParamMouthForm: 0,    ParamMouthOpenY: 0.6, ParamEyeLOpen: 1.2, ParamEyeROpen: 1.2 },
   speak_o:     { ParamExpression: 1, ParamMouthForm: 0.5,  ParamMouthOpenY: 0,   ParamEyeLOpen: 1.2, ParamEyeROpen: 1.2 }
 });
@@ -384,16 +388,41 @@ async function speakDialogue(dialogue) {
   }
 }
 
+function reportClassifiedInteraction(type) {
+  console.info(`Interaction classified: ${type}`);
+  window.desktopPet.reportInteraction(type);
+}
+
 function registerInteractionClick() {
-  interactionClickCount += 1;
+  const now = performance.now();
+  if (now < rapidClickLockedUntil) {
+    if (!isSpeaking) setExpression('annoyed', 1500);
+    return;
+  }
+
+  interactionClicks.push(now);
   window.clearTimeout(interactionClickTimer);
+  interactionClickTimer = null;
+
+  if (interactionClicks.length >= RAPID_CLICK_THRESHOLD) {
+    interactionClicks = [];
+    rapidClickLockedUntil = now + RAPID_CLICK_LOCK_MS;
+    if (!isSpeaking) setExpression('annoyed', 1800);
+    reportClassifiedInteraction('rapid');
+    return;
+  }
+
+  if (!isSpeaking) {
+    setExpression(interactionClicks.length === 2 ? 'surprised' : 'soft_smile',
+      interactionClicks.length === 2 ? 1300 : 900);
+  }
+
   interactionClickTimer = window.setTimeout(() => {
-    const type = interactionClickCount >= 3
-      ? 'rapid'
-      : (interactionClickCount === 2 ? 'double' : 'single');
-    interactionClickCount = 0;
-    window.desktopPet.reportInteraction(type);
-  }, 420);
+    const type = interactionClicks.length >= 2 ? 'double' : 'single';
+    interactionClicks = [];
+    interactionClickTimer = null;
+    reportClassifiedInteraction(type);
+  }, INTERACTION_SETTLE_MS);
 }
 
 function setExpression(name, restoreAfter = 0) {
@@ -520,7 +549,6 @@ canvas.addEventListener('pointerup', (event) => {
   if (canvas.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId);
   reportPointerHit(isVisiblePetPixel(event.clientX, event.clientY));
   if (!wasMoved) {
-    setExpression('soft_smile', 1600);
     registerInteractionClick();
   }
 });
@@ -539,9 +567,6 @@ canvas.addEventListener('pointerleave', () => {
 // This listener is what lets a transparent window become interactive again over visible pixels.
 window.addEventListener('mousemove', updatePointerFromMouseEvent);
 
-canvas.addEventListener('dblclick', (event) => {
-  if (isVisiblePetPixel(event.clientX, event.clientY)) setExpression('surprised', 1300);
-});
 canvas.addEventListener('contextmenu', (event) => {
   event.preventDefault();
   if (!isVisiblePetPixel(event.clientX, event.clientY)) return;

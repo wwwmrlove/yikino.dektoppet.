@@ -1,6 +1,6 @@
 # Yukino Desktop Pet
 
-雪之下雪乃主题的 Windows Live2D 桌宠项目，当前基线为 `v1.4.0-rc1`。
+雪之下雪乃主题的 Windows Live2D 桌宠项目，当前基线为 `v1.4.0-rc2`。
 
 项目包含可编辑的 Live2D/PSD 源文件、Electron 桌宠源码、68 条原创日语语音、中文字幕云、时间与区县级天气感知，以及统一的主动行为协调层。
 

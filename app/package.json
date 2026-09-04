@@ -1,6 +1,6 @@
 {
   "name": "yukino-desktop-pet",
-  "version": "1.4.0-rc.1",
+  "version": "1.4.0-rc.2",
   "private": true,
   "description": "Yukino Live2D desktop pet for Windows",
   "main": "main.js",
