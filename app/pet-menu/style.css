@@ -56,10 +56,15 @@ button, summary, input { font: inherit; }
   align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
+  cursor: grab;
+  user-select: none;
 }
+
+.header:active { cursor: grabbing; }
 
 .eyebrow { color: #d57f9f; font-size: 9px; font-weight: 750; letter-spacing: .17em; }
 h1 { margin: 4px 0 0; color: #493642; font-size: 20px; font-weight: 680; }
+.drag-hint { margin-top: 3px; color: #b590a0; font-size: 9px; }
 h2 { margin: 15px 2px 7px; color: #826574; font-size: 11px; font-weight: 700; letter-spacing: .08em; }
 
 button {
@@ -142,6 +147,7 @@ button:focus-visible { outline: 2px solid rgba(218, 120, 157, .42); outline-offs
 .settings-grid button { font-size: 11px; }
 
 .scale-row,
+.position-row,
 .switch-row {
   display: flex;
   align-items: center;
@@ -155,9 +161,13 @@ button:focus-visible { outline: 2px solid rgba(218, 120, 157, .42); outline-offs
 }
 
 .scale-row > span,
+.position-row strong,
 .switch-row strong { font-size: 11px; font-weight: 700; }
 .scale-row > div { display: flex; gap: 4px; }
 .scale-row button { min-width: 35px; padding: 4px 7px; font-size: 10px; }
+.position-row > span { display: flex; flex-direction: column; gap: 2px; }
+.position-row small { color: #9c7d8c; font-size: 9px; }
+.position-row button { padding: 5px 8px; font-size: 10px; }
 .switch-row { cursor: pointer; }
 .switch-row > span { display: flex; flex-direction: column; gap: 2px; }
 .switch-row small { color: #9c7d8c; font-size: 9px; }

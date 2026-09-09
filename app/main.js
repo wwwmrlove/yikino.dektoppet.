@@ -29,6 +29,9 @@ let behaviorSettingsService = null;
 let behaviorSettingsWindow = null;
 let petMenuWindow = null;
 let petMenuReady = false;
+let petMenuPositionSaveTimer = null;
+let petMenuPositionGuardTimer = null;
+let petMenuPositioning = false;
 let alwaysOnTop = true;
 let clickThrough = false;
 let pointerOverPet = false;
@@ -384,6 +387,7 @@ function petMenuState() {
     clickThrough,
     weatherReady: Boolean(weather),
     weatherSummary: weather ? `${weather.city} · ${weather.label}` : '尚未设置天气地区',
+    menuPositionMode: savedState.petMenuPositionMode === 'manual' ? 'manual' : 'auto',
     voiceGroups: getVoiceGroups(),
     debugTriggers: getDebugTriggers()
   };
@@ -391,6 +395,72 @@ function petMenuState() {
 
 function hidePetMenu() {
   if (petMenuWindow && !petMenuWindow.isDestroyed()) petMenuWindow.hide();
+}
+
+function clampPetMenuPosition(x, y) {
+  const rounded = { x: Math.round(x), y: Math.round(y) };
+  const area = screen.getDisplayNearestPoint(rounded).workArea;
+  const margin = 8;
+  return {
+    x: Math.min(Math.max(rounded.x, area.x + margin), area.x + area.width - PET_MENU_WIDTH - margin),
+    y: Math.min(Math.max(rounded.y, area.y + margin), area.y + area.height - PET_MENU_HEIGHT - margin)
+  };
+}
+
+function automaticPetMenuPosition() {
+  const petBounds = petWindow.getBounds();
+  const area = screen.getDisplayMatching(petBounds).workArea;
+  const gap = 12;
+  const leftX = petBounds.x - PET_MENU_WIDTH - gap;
+  const rightX = petBounds.x + petBounds.width + gap;
+  let x;
+  if (leftX >= area.x + 8) x = leftX;
+  else if (rightX + PET_MENU_WIDTH <= area.x + area.width - 8) x = rightX;
+  else x = Math.min(
+    Math.max(screen.getCursorScreenPoint().x - Math.round(PET_MENU_WIDTH / 2), area.x + 8),
+    area.x + area.width - PET_MENU_WIDTH - 8
+  );
+  const cursorY = screen.getCursorScreenPoint().y;
+  const y = Math.min(
+    Math.max(cursorY - 38, area.y + 8),
+    area.y + area.height - PET_MENU_HEIGHT - 8
+  );
+  return { x, y };
+}
+
+function setPetMenuPosition(position) {
+  if (!petMenuWindow || petMenuWindow.isDestroyed()) return;
+  petMenuPositioning = true;
+  if (petMenuPositionGuardTimer) clearTimeout(petMenuPositionGuardTimer);
+  petMenuWindow.setBounds({
+    x: position.x,
+    y: position.y,
+    width: PET_MENU_WIDTH,
+    height: PET_MENU_HEIGHT
+  }, false);
+  petMenuPositionGuardTimer = setTimeout(() => {
+    petMenuPositioning = false;
+    petMenuPositionGuardTimer = null;
+  }, 120);
+}
+
+function movePetMenuManually(payload = {}) {
+  if (!petMenuWindow || petMenuWindow.isDestroyed()) return;
+  const x = Number(payload.x);
+  const y = Number(payload.y);
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+  const position = clampPetMenuPosition(x, y);
+  setPetMenuPosition(position);
+  savedState = {
+    ...savedState,
+    petMenuPositionMode: 'manual',
+    petMenuX: position.x,
+    petMenuY: position.y
+  };
+  if (payload.final) {
+    writeState({ petMenuPositionMode: 'manual', petMenuX: position.x, petMenuY: position.y });
+    if (petMenuReady) petMenuWindow.webContents.send('pet-menu:refresh', petMenuState());
+  }
 }
 
 function createPetMenuWindow() {
@@ -402,7 +472,7 @@ function createPetMenuWindow() {
     transparent: true,
     frame: false,
     resizable: false,
-    movable: false,
+    movable: true,
     minimizable: false,
     maximizable: false,
     focusable: true,
@@ -428,8 +498,23 @@ function createPetMenuWindow() {
     petMenuReady = true;
     petMenuWindow?.webContents.send('pet-menu:refresh', petMenuState());
   });
+  petMenuWindow.on('move', () => {
+    if (petMenuPositioning) return;
+    if (petMenuPositionSaveTimer) clearTimeout(petMenuPositionSaveTimer);
+    petMenuPositionSaveTimer = setTimeout(() => {
+      if (!petMenuWindow || petMenuWindow.isDestroyed() || petMenuPositioning) return;
+      const [x, y] = petMenuWindow.getPosition();
+      writeState({ petMenuPositionMode: 'manual', petMenuX: x, petMenuY: y });
+      if (petMenuReady) petMenuWindow.webContents.send('pet-menu:refresh', petMenuState());
+    }, 140);
+  });
   petMenuWindow.on('blur', hidePetMenu);
   petMenuWindow.on('closed', () => {
+    if (petMenuPositionSaveTimer) clearTimeout(petMenuPositionSaveTimer);
+    if (petMenuPositionGuardTimer) clearTimeout(petMenuPositionGuardTimer);
+    petMenuPositionSaveTimer = null;
+    petMenuPositionGuardTimer = null;
+    petMenuPositioning = false;
     petMenuWindow = null;
     petMenuReady = false;
   });
@@ -440,25 +525,17 @@ function showPetMenu() {
   createPetMenuWindow();
   if (!petMenuWindow || petMenuWindow.isDestroyed()) return;
 
-  const petBounds = petWindow.getBounds();
-  const display = screen.getDisplayMatching(petBounds);
-  const area = display.workArea;
-  const gap = 12;
-  const leftX = petBounds.x - PET_MENU_WIDTH - gap;
-  const rightX = petBounds.x + petBounds.width + gap;
-  let x;
-  if (leftX >= area.x + 8) x = leftX;
-  else if (rightX + PET_MENU_WIDTH <= area.x + area.width - 8) x = rightX;
-  else x = Math.min(
-    Math.max(screen.getCursorScreenPoint().x - Math.round(PET_MENU_WIDTH / 2), area.x + 8),
-    area.x + area.width - PET_MENU_WIDTH - 8
-  );
-  const cursorY = screen.getCursorScreenPoint().y;
-  const y = Math.min(
-    Math.max(cursorY - 38, area.y + 8),
-    area.y + area.height - PET_MENU_HEIGHT - 8
-  );
-  petMenuWindow.setBounds({ x, y, width: PET_MENU_WIDTH, height: PET_MENU_HEIGHT }, false);
+  const hasSavedPosition = savedState.petMenuPositionMode === 'manual'
+    && Number.isFinite(savedState.petMenuX)
+    && Number.isFinite(savedState.petMenuY);
+  const position = hasSavedPosition
+    ? clampPetMenuPosition(savedState.petMenuX, savedState.petMenuY)
+    : automaticPetMenuPosition();
+  if (hasSavedPosition
+    && (position.x !== savedState.petMenuX || position.y !== savedState.petMenuY)) {
+    writeState({ petMenuX: position.x, petMenuY: position.y });
+  }
+  setPetMenuPosition(position);
   setImmediate(() => {
     if (!petMenuWindow || petMenuWindow.isDestroyed()) return;
     if (petMenuReady) petMenuWindow.webContents.send('pet-menu:refresh', petMenuState());
@@ -497,6 +574,10 @@ function runPetMenuAction(payload = {}) {
     keepOpen = true;
   } else if (action === 'scale-reset') {
     petWindow?.webContents.send('pet:scale-reset');
+    keepOpen = true;
+  } else if (action === 'menu-position-reset') {
+    writeState({ petMenuPositionMode: 'auto', petMenuX: null, petMenuY: null });
+    if (petWindow && !petWindow.isDestroyed()) setPetMenuPosition(automaticPetMenuPosition());
     keepOpen = true;
   } else if (action === 'always-on-top') {
     setAlwaysOnTop(Boolean(value));
@@ -664,6 +745,10 @@ ipcMain.on('pet:move', (_event, payload) => {
 ipcMain.on('pet:menu', () => showPetMenu());
 ipcMain.handle('pet-menu:get-state', () => petMenuState());
 ipcMain.handle('pet-menu:action', (_event, payload) => runPetMenuAction(payload));
+ipcMain.on('pet-menu:move', (event, payload) => {
+  if (!petMenuWindow || petMenuWindow.isDestroyed() || event.sender !== petMenuWindow.webContents) return;
+  movePetMenuManually(payload);
+});
 ipcMain.on('pet:scale', (_event, scale) => writeState({ modelScale: scale }));
 ipcMain.on('pet:layout', (_event, layout) => {
   const anchorX = Number(layout?.anchorX);

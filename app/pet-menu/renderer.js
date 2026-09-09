@@ -1,12 +1,15 @@
 'use strict';
 
 const weatherSummary = document.getElementById('weather-summary');
+const header = document.querySelector('.header');
 const weatherAction = document.getElementById('weather-action');
 const voiceGroups = document.getElementById('voice-groups');
 const alwaysOnTop = document.getElementById('always-on-top');
 const clickThrough = document.getElementById('click-through');
+const positionMode = document.getElementById('position-mode');
 const debugSection = document.getElementById('debug-section');
 const debugTriggers = document.getElementById('debug-triggers');
+let menuDrag = null;
 
 function actionButton(label, action, value) {
   const button = document.createElement('button');
@@ -52,6 +55,9 @@ function render(state) {
   weatherAction.lastChild.textContent = state.weatherReady ? ' 当前天气' : ' 设置天气';
   alwaysOnTop.checked = Boolean(state.alwaysOnTop);
   clickThrough.checked = Boolean(state.clickThrough);
+  positionMode.textContent = state.menuPositionMode === 'manual'
+    ? '已记住自定义位置'
+    : '自动停靠人物侧边';
   renderVoiceGroups(state.voiceGroups);
   renderDebugTriggers(state.debugTriggers);
 }
@@ -63,6 +69,37 @@ async function runAction(action, value) {
     console.error('Pet menu action failed:', error);
   }
 }
+
+function updateMenuPosition(event, final = false) {
+  if (!menuDrag) return;
+  window.petMenu.moveWindow(
+    Math.round(event.screenX - menuDrag.offsetX),
+    Math.round(event.screenY - menuDrag.offsetY),
+    final
+  );
+}
+
+header.addEventListener('pointerdown', (event) => {
+  if (event.button !== 0 || event.target.closest('button')) return;
+  menuDrag = { pointerId: event.pointerId, offsetX: event.clientX, offsetY: event.clientY };
+  header.setPointerCapture(event.pointerId);
+  event.preventDefault();
+});
+
+header.addEventListener('pointermove', (event) => {
+  if (!menuDrag || menuDrag.pointerId !== event.pointerId || !(event.buttons & 1)) return;
+  updateMenuPosition(event);
+});
+
+function finishMenuDrag(event) {
+  if (!menuDrag || menuDrag.pointerId !== event.pointerId) return;
+  updateMenuPosition(event, true);
+  if (header.hasPointerCapture(event.pointerId)) header.releasePointerCapture(event.pointerId);
+  menuDrag = null;
+}
+
+header.addEventListener('pointerup', finishMenuDrag);
+header.addEventListener('pointercancel', finishMenuDrag);
 
 document.addEventListener('click', (event) => {
   const button = event.target.closest('button[data-action]');
