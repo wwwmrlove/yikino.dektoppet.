@@ -1,15 +1,27 @@
 'use strict';
 
-const { app, BrowserWindow, globalShortcut, ipcMain, powerMonitor, screen } = require('electron');
+const { app, BrowserWindow, globalShortcut, ipcMain, powerMonitor, screen, Tray, Menu, nativeImage } = require('electron');
 const fs = require('fs');
 const path = require('path');
 const { createTriggerEngine } = require('./trigger-engine');
 const { createWeatherService } = require('./weather-service');
 const { createBehaviorSettingsService } = require('./behavior-settings');
 const { calculateSubtitlePlacement } = require('./subtitle-placement');
+const { createRendererRecovery } = require('./renderer-recovery');
+const { createJsonStore } = require('./json-store');
+const { calculateMenuBounds } = require('./menu-placement');
+const { calculatePetBounds } = require('./pet-placement');
+const { installSafeLogging } = require('./safe-logging');
+const jsonStore = createJsonStore(fs);
 
-const DEFAULT_WIDTH = 420;
-const DEFAULT_HEIGHT = 820;
+// An isolated development profile keeps recovery tests away from personal settings.
+if (!app.isPackaged && process.env.YUKINO_TEST_USER_DATA) {
+  app.setPath('userData', path.resolve(process.env.YUKINO_TEST_USER_DATA));
+}
+installSafeLogging({logFile: path.join(app.getPath('userData'), 'logs', 'main.log')});
+const hasInstanceLock = app.requestSingleInstanceLock();
+if (!hasInstanceLock) app.quit();
+
 const BASE_SUBTITLE_WIDTH = 352;
 const BASE_SUBTITLE_HEIGHT = 198;
 const PET_MENU_WIDTH = 334;
@@ -39,55 +51,63 @@ let ignoringMouseEvents = null;
 let pointerPollTimer = null;
 let savedState = {};
 let petModelLayout = null;
+let rendererRecovery = null;
+let tray = null;
+let stateSaveTimer = null;
+let stateDirty = false;
+let quitting = false;
 
 const statePath = () => path.join(app.getPath('userData'), STATE_FILE);
 
 function readState() {
-  try {
-    return JSON.parse(fs.readFileSync(statePath(), 'utf8'));
-  } catch {
-    return {};
-  }
-}
-
-function writeState(patch) {
-  savedState = { ...savedState, ...patch };
-  try {
-    fs.mkdirSync(path.dirname(statePath()), { recursive: true });
-    fs.writeFileSync(statePath(), JSON.stringify(savedState, null, 2), 'utf8');
-  } catch (error) {
-    console.error('Unable to save desktop-pet state:', error);
-  }
-}
-
-function clampToWorkArea(x, y, width, height) {
-  const display = screen.getDisplayNearestPoint({ x, y });
-  const area = display.workArea;
-  const modelScale = Number.isFinite(savedState.modelScale)
-    ? Math.min(1.35, Math.max(0.62, savedState.modelScale))
-    : 1;
-  // The model is bottom-aligned. At smaller scales the upper part of the fixed-size
-  // transparent window is empty, so allow that padding (plus a small margin) above the screen.
-  const estimatedVisibleHeight = height * 0.965 * modelScale;
-  const transparentTopPadding = Math.max(0, height - estimatedVisibleHeight);
-  const allowedTopOverflow = Math.min(height * 0.45, transparentTopPadding + 32);
+  const state = jsonStore.read(statePath(), {});
   return {
-    x: Math.min(Math.max(Math.round(x), area.x), area.x + area.width - width),
-    y: Math.min(
-      Math.max(Math.round(y), Math.round(area.y - allowedTopOverflow)),
-      area.y + area.height - height
-    )
+    ...state,
+    modelScale: Number.isFinite(state.modelScale) ? Math.min(1.35, Math.max(0.62, state.modelScale)) : 1
   };
+}
+
+function flushState() {
+  if (stateSaveTimer) clearTimeout(stateSaveTimer);
+  stateSaveTimer = null;
+  if (!stateDirty) return;
+  try {
+    jsonStore.write(statePath(), savedState);
+    stateDirty = false;
+  } catch (error) { console.error('Unable to save desktop-pet state:', error); }
+}
+
+function writeState(patch, immediate = false) {
+  savedState = { ...savedState, ...patch };
+  stateDirty = true;
+  if (stateSaveTimer) clearTimeout(stateSaveTimer);
+  if (immediate) flushState();
+  else stateSaveTimer = setTimeout(flushState, 300);
+}
+
+function clampToWorkArea(x, y) {
+  const display = screen.getDisplayNearestPoint({ x, y });
+  return calculatePetBounds({ x, y }, display.workArea, savedState.modelScale);
 }
 
 function defaultBounds() {
-  const area = screen.getPrimaryDisplay().workArea;
-  return {
-    width: DEFAULT_WIDTH,
-    height: Math.min(DEFAULT_HEIGHT, area.height - 24),
-    x: area.x + area.width - DEFAULT_WIDTH - 24,
-    y: area.y + area.height - Math.min(DEFAULT_HEIGHT, area.height - 24) - 12
-  };
+  return calculatePetBounds(null, screen.getPrimaryDisplay().workArea, savedState.modelScale);
+}
+
+function setPetBounds(bounds) {
+  if (!petWindow || petWindow.isDestroyed()) return;
+  const previous = petWindow.getBounds();
+  if (previous.width !== bounds.width || previous.height !== bounds.height) {
+    // Fixed-size windows otherwise refuse the smaller bounds after a display
+    // change. Restore the constraints after fitting the target work area.
+    petWindow.setMinimumSize(1, 1);
+    petWindow.setMaximumSize(0, 0);
+    petWindow.setBounds(bounds, false);
+    petWindow.setMinimumSize(bounds.width, bounds.height);
+    petWindow.setMaximumSize(bounds.width, bounds.height);
+  } else {
+    petWindow.setPosition(bounds.x, bounds.y, false);
+  }
 }
 
 function applyMouseEventMode() {
@@ -106,6 +126,7 @@ function setClickThrough(enabled) {
   if (petWindow && !petWindow.isDestroyed()) {
     petWindow.webContents.send('pet:click-through', clickThrough);
   }
+  updateTrayMenu();
 }
 
 function setAlwaysOnTop(enabled) {
@@ -120,6 +141,7 @@ function setAlwaysOnTop(enabled) {
     petMenuWindow.setAlwaysOnTop(alwaysOnTop, 'screen-saver');
   }
   writeState({ alwaysOnTop });
+  updateTrayMenu();
 }
 
 function sendExpression(name) {
@@ -141,7 +163,67 @@ function readDialogues() {
 function deliverSpeech(dialogue) {
   if (petWindow && !petWindow.isDestroyed() && dialogue) {
     petWindow.webContents.send('pet:speak', dialogue);
+    return true;
   }
+  return false;
+}
+
+function clearSubtitle() {
+  pendingSubtitle = null;
+  if (subtitleWindow && !subtitleWindow.isDestroyed()) {
+    if (subtitleReady) subtitleWindow.webContents.send('subtitle:hide', activeSubtitleToken);
+    subtitleWindow.hide();
+  }
+  activeSubtitleToken = 0;
+}
+
+function cancelPetSpeech(token, reason) {
+  hideSubtitle(token);
+  if (!petWindow || petWindow.isDestroyed() || petWindow.webContents.isDestroyed()) {
+    throw new Error('Pet renderer is unavailable');
+  }
+  try { petWindow.webContents.send('pet:speech-cancelled', { token, reason }); }
+  catch (error) { rendererRecovery?.failed(error.message); throw error; }
+}
+
+function restorePetWindow() {
+  if (!petWindow || petWindow.isDestroyed()) return;
+  setClickThrough(false);
+  const bounds = defaultBounds();
+  setPetBounds(bounds);
+  petWindow.showInactive();
+  if (rendererRecovery?.getState() === 'failed') rendererRecovery.retry();
+}
+
+function updateTrayMenu() {
+  if (!tray || tray.isDestroyed()) return;
+  tray.setContextMenu(Menu.buildFromTemplate([
+    { label: '找回雪乃 / 关闭鼠标穿透', click: restorePetWindow },
+    { label: '打开控制面板', click: showPetMenu },
+    { label: '重新载入角色', click: () => rendererRecovery?.retry() },
+    { type: 'separator' },
+    { label: '始终置顶', type: 'checkbox', checked: alwaysOnTop, click: item => setAlwaysOnTop(item.checked) },
+    { label: '鼠标穿透', type: 'checkbox', checked: clickThrough, click: item => setClickThrough(item.checked) },
+    { type: 'separator' },
+    { label: '退出桌宠', click: () => app.quit() }
+  ]));
+}
+
+function createTray() {
+  const size = 32;
+  const pixels = Buffer.alloc(size * size * 4);
+  for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
+    if (Math.hypot(x - 15.5, y - 15.5) > 15) continue;
+    const i = (y * size + x) * 4;
+    const snow = Math.abs(x - 15.5) < 1.5 || Math.abs(y - 15.5) < 1.5
+      || (Math.abs(x-y) < 2 || Math.abs(x+y-31) < 2) && Math.hypot(x-15.5,y-15.5) < 10;
+    pixels[i] = snow ? 255 : 171; pixels[i+1] = snow ? 255 : 140;
+    pixels[i+2] = snow ? 255 : 222; pixels[i+3] = 255;
+  }
+  tray = new Tray(nativeImage.createFromBitmap(pixels, { width: size, height: size }));
+  tray.setToolTip('雪乃桌宠 · 双击找回角色');
+  tray.on('double-click', restorePetWindow);
+  updateTrayMenu();
 }
 
 function sendSpeech(dialogue) {
@@ -357,6 +439,7 @@ function hideSubtitle(token) {
   if (!subtitleWindow || subtitleWindow.isDestroyed()) return;
   const numericToken = Number(token) || 0;
   if (numericToken !== activeSubtitleToken) return;
+  if (pendingSubtitle && Number(pendingSubtitle.token) === numericToken) pendingSubtitle = null;
   subtitleWindow.webContents.send('subtitle:hide', numericToken);
   setTimeout(() => {
     if (numericToken === activeSubtitleToken && subtitleWindow && !subtitleWindow.isDestroyed()) {
@@ -388,6 +471,7 @@ function petMenuState() {
     weatherReady: Boolean(weather),
     weatherSummary: weather ? `${weather.city} · ${weather.label}` : '尚未设置天气地区',
     menuPositionMode: savedState.petMenuPositionMode === 'manual' ? 'manual' : 'auto',
+    rendererStatus: rendererRecovery?.getState() || 'loading',
     voiceGroups: getVoiceGroups(),
     debugTriggers: getDebugTriggers()
   };
@@ -400,44 +484,32 @@ function hidePetMenu() {
 function clampPetMenuPosition(x, y) {
   const rounded = { x: Math.round(x), y: Math.round(y) };
   const area = screen.getDisplayNearestPoint(rounded).workArea;
-  const margin = 8;
-  return {
-    x: Math.min(Math.max(rounded.x, area.x + margin), area.x + area.width - PET_MENU_WIDTH - margin),
-    y: Math.min(Math.max(rounded.y, area.y + margin), area.y + area.height - PET_MENU_HEIGHT - margin)
-  };
+  return calculateMenuBounds(rounded, area, {width: PET_MENU_WIDTH, height: PET_MENU_HEIGHT});
 }
 
 function automaticPetMenuPosition() {
   const petBounds = petWindow.getBounds();
   const area = screen.getDisplayMatching(petBounds).workArea;
   const gap = 12;
-  const leftX = petBounds.x - PET_MENU_WIDTH - gap;
+  const fitted = calculateMenuBounds(petBounds, area);
+  const leftX = petBounds.x - fitted.width - gap;
   const rightX = petBounds.x + petBounds.width + gap;
   let x;
   if (leftX >= area.x + 8) x = leftX;
-  else if (rightX + PET_MENU_WIDTH <= area.x + area.width - 8) x = rightX;
+  else if (rightX + fitted.width <= area.x + area.width - 8) x = rightX;
   else x = Math.min(
-    Math.max(screen.getCursorScreenPoint().x - Math.round(PET_MENU_WIDTH / 2), area.x + 8),
-    area.x + area.width - PET_MENU_WIDTH - 8
+    Math.max(screen.getCursorScreenPoint().x - Math.round(fitted.width / 2), area.x + 8),
+    area.x + area.width - fitted.width - 8
   );
   const cursorY = screen.getCursorScreenPoint().y;
-  const y = Math.min(
-    Math.max(cursorY - 38, area.y + 8),
-    area.y + area.height - PET_MENU_HEIGHT - 8
-  );
-  return { x, y };
+  return calculateMenuBounds({ x, y: cursorY - 38 }, area);
 }
 
 function setPetMenuPosition(position) {
   if (!petMenuWindow || petMenuWindow.isDestroyed()) return;
   petMenuPositioning = true;
   if (petMenuPositionGuardTimer) clearTimeout(petMenuPositionGuardTimer);
-  petMenuWindow.setBounds({
-    x: position.x,
-    y: position.y,
-    width: PET_MENU_WIDTH,
-    height: PET_MENU_HEIGHT
-  }, false);
+  petMenuWindow.setBounds(clampPetMenuPosition(position.x, position.y), false);
   petMenuPositionGuardTimer = setTimeout(() => {
     petMenuPositioning = false;
     petMenuPositionGuardTimer = null;
@@ -566,6 +638,9 @@ function runPetMenuAction(payload = {}) {
     openWeatherSettings();
   } else if (action === 'behavior-settings') {
     openBehaviorSettings();
+  } else if (action === 'renderer-retry') {
+    rendererRecovery?.retry();
+    keepOpen = true;
   } else if (action === 'scale-step') {
     const amount = Number(value);
     if (petWindow && !petWindow.isDestroyed() && [0.1, -0.1].includes(amount)) {
@@ -606,12 +681,10 @@ function createWindow() {
   alwaysOnTop = savedState.alwaysOnTop !== false;
   petModelLayout = null;
 
-  const initial = defaultBounds();
-  const width = initial.width;
-  const height = initial.height;
   const position = Number.isFinite(savedState.x) && Number.isFinite(savedState.y)
-    ? clampToWorkArea(savedState.x, savedState.y, width, height)
-    : { x: initial.x, y: initial.y };
+    ? clampToWorkArea(savedState.x, savedState.y)
+    : defaultBounds();
+  const { width, height } = position;
 
   petWindow = new BrowserWindow({
     x: position.x,
@@ -646,8 +719,9 @@ function createWindow() {
   behaviorSettingsService = createBehaviorSettingsService({ app });
   weatherService = createWeatherService({
     app,
-    onUpdate: (nextContext, previousContext) => {
-      triggerEngine?.handleWeatherUpdate(nextContext, previousContext);
+    onUpdate: (nextContext, previousContext, meta) => {
+      triggerEngine?.handleWeatherUpdate(nextContext, previousContext, meta);
+      if (petMenuReady) petMenuWindow?.webContents.send('pet-menu:refresh', petMenuState());
     }
   });
   triggerEngine = createTriggerEngine({
@@ -655,11 +729,41 @@ function createWindow() {
     powerMonitor,
     dialogues: readDialogues(),
     sendSpeech: deliverSpeech,
+    cancelSpeech: cancelPetSpeech,
+    rendererReady: false,
     getWeatherContext: () => weatherService?.getContext(),
     getBehaviorSettings: () => behaviorSettingsService?.get() || {}
   });
   weatherService.start();
   createSubtitleWindow();
+  rendererRecovery = createRendererRecovery({
+    pause() {
+      triggerEngine?.onRendererUnavailable();
+      clearSubtitle();
+      if (pointerPollTimer) clearInterval(pointerPollTimer);
+      pointerPollTimer = null;
+      pointerOverPet = false;
+      ignoringMouseEvents = null;
+      applyMouseEventMode();
+    },
+    resume() {
+      triggerEngine?.onRendererReady();
+      triggerEngine?.start();
+      startPointerPolling();
+      tray?.setToolTip('雪乃桌宠 · 双击找回角色');
+      if (petMenuReady) petMenuWindow?.webContents.send('pet-menu:refresh', petMenuState());
+    },
+    reload() {
+      if (quitting || !petWindow || petWindow.isDestroyed()) return;
+      petModelLayout = null;
+      petWindow.webContents.reload();
+    },
+    exhausted(reason) {
+      console.error('Renderer recovery stopped:', reason);
+      tray?.setToolTip('雪乃桌宠 · 载入失败，右键托盘可重新载入');
+      if (petMenuReady) petMenuWindow?.webContents.send('pet-menu:refresh', petMenuState());
+    }
+  });
   ignoringMouseEvents = null;
   pointerOverPet = false;
   applyMouseEventMode();
@@ -673,13 +777,15 @@ function createWindow() {
   });
   petWindow.webContents.on('did-fail-load', (_event, code, description, url) => {
     console.error(`Renderer failed to load: ${code} ${description} ${url}`);
+    if (!quitting && code !== -3) rendererRecovery?.failed(description);
   });
   petWindow.webContents.on('render-process-gone', (_event, details) => {
     console.error('Renderer process ended:', details);
+    if (!quitting) rendererRecovery?.failed(details.reason);
   });
+  petWindow.webContents.on('did-start-loading', () => rendererRecovery?.loading());
   petWindow.webContents.on('did-finish-load', () => {
     console.log('Renderer document loaded.');
-    triggerEngine?.start();
   });
   petWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'));
 
@@ -687,7 +793,6 @@ function createWindow() {
     console.log('Desktop-pet window is ready to show.');
     petWindow.showInactive();
     positionSubtitleWindow();
-    startPointerPolling();
   });
   petWindow.on('move', () => {
     if (!petWindow || petWindow.isDestroyed()) return;
@@ -697,6 +802,8 @@ function createWindow() {
     positionSubtitleWindow();
   });
   petWindow.on('closed', () => {
+    rendererRecovery?.dispose();
+    rendererRecovery = null;
     if (pointerPollTimer) clearInterval(pointerPollTimer);
     pointerPollTimer = null;
     triggerEngine?.stop();
@@ -718,13 +825,32 @@ function createWindow() {
 }
 
 app.on('ready', () => {
+  if (!hasInstanceLock) return;
   createWindow();
+  createTray();
 
-  globalShortcut.register('CommandOrControl+Alt+Y', () => {
-    setClickThrough(false);
-    if (petWindow && !petWindow.isDestroyed()) petWindow.showInactive();
-  });
+  const registered = globalShortcut.register('CommandOrControl+Alt+Y', restorePetWindow);
+  if (!registered) {
+    console.warn('Ctrl+Alt+Y unavailable; recover the pet from the tray.');
+    tray.setToolTip('雪乃桌宠 · 快捷键被占用，可双击此图标找回角色');
+  }
+  for (const event of ['display-removed', 'display-added', 'display-metrics-changed']) {
+    screen.on(event, () => {
+      if (!petWindow || petWindow.isDestroyed()) return;
+      const bounds = petWindow.getBounds();
+      const position = clampToWorkArea(bounds.x, bounds.y);
+      setPetBounds(position);
+      positionSubtitleWindow();
+      if (petMenuWindow && !petMenuWindow.isDestroyed()) {
+        const [x,y] = petMenuWindow.getPosition();
+        setPetMenuPosition({x,y});
+      }
+    });
+  }
 });
+
+app.on('second-instance', restorePetWindow);
+app.on('before-quit', () => { quitting = true; rendererRecovery?.dispose(); flushState(); });
 
 app.on('window-all-closed', () => app.quit());
 app.on('will-quit', () => {
@@ -732,13 +858,16 @@ app.on('will-quit', () => {
   triggerEngine?.stop();
   weatherService?.stop();
   globalShortcut.unregisterAll();
+  tray?.destroy();
+  tray = null;
+  flushState();
 });
 
 ipcMain.on('pet:move', (_event, payload) => {
   if (!petWindow || petWindow.isDestroyed()) return;
-  const [width, height] = petWindow.getSize();
-  const next = clampToWorkArea(payload.x, payload.y, width, height);
-  petWindow.setPosition(next.x, next.y, false);
+  if (!Number.isFinite(payload?.x) || !Number.isFinite(payload?.y)) return;
+  const next = clampToWorkArea(payload.x, payload.y);
+  setPetBounds(next);
   positionSubtitleWindow();
 });
 
@@ -767,13 +896,20 @@ ipcMain.on('pet:layout', (_event, layout) => {
   positionSubtitleWindow();
 });
 ipcMain.on('pet:interaction', (_event, type) => triggerEngine?.handleInteraction(type));
-ipcMain.on('pet:speech-started', (_event, payload) => {
-  triggerEngine?.onSpeechStarted(payload);
-  showSubtitle(payload);
+function isPetRenderer(event) {
+  return petWindow && !petWindow.isDestroyed() && event.sender === petWindow.webContents;
+}
+ipcMain.on('pet:renderer-ready', event => {
+  if (isPetRenderer(event)) rendererRecovery?.ready();
 });
-ipcMain.on('pet:speech-ended', (_event, token) => {
-  triggerEngine?.onSpeechEnded(token);
-  hideSubtitle(token);
+ipcMain.on('pet:renderer-failed', (event, message) => {
+  if (isPetRenderer(event)) rendererRecovery?.failed(String(message).slice(0, 500));
+});
+ipcMain.on('pet:speech-started', (event, payload) => {
+  if (isPetRenderer(event) && triggerEngine?.onSpeechStarted(payload)) showSubtitle(payload);
+});
+ipcMain.on('pet:speech-ended', (event, token) => {
+  if (isPetRenderer(event) && triggerEngine?.onSpeechEnded(token)) hideSubtitle(token);
 });
 ipcMain.on('pet:pointer-over', (_event, isOverPet) => {
   const next = Boolean(isOverPet);

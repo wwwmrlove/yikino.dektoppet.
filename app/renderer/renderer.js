@@ -18,6 +18,7 @@ let dragState = null;
 let resetExpressionTimer = null;
 let activeExpression = 'default';
 let activeExpressionExpiresAt = 0;
+let persistentExpression = 'default';
 let hintTimer = null;
 let pointerTarget = { x: 0, y: 0 };
 let app = null;
@@ -37,10 +38,11 @@ let isSpeaking = false;
 let expressionBeforeSpeech = 'default';
 let expressionBeforeSpeechExpiresAt = 0;
 let speechToken = 0;
+let lastReceivedSpeechToken = 0;
 let interactionClicks = [];
 let interactionClickTimer = null;
 let rapidClickLockedUntil = 0;
-let mouthInvariantWarningShown = false;
+let mouthController = null;
 
 const HIT_MASK_RESOLUTION = 0.5;
 const HIT_MASK_REFRESH_MS = 180;
@@ -63,34 +65,9 @@ const EXPRESSION_PARAMETERS = Object.freeze({
   // The surprised idle pose uses the medium-open artwork. Keeping this at 1
   // selects the wide-open drawable range and makes the medium mouth disappear.
   surprised:   { ParamExpression: 4, ParamMouthForm: 0,    ParamMouthOpenY: 0.6, ParamEyeLOpen: 1.2, ParamEyeROpen: 1.2 },
-  worried:     { ParamExpression: 5, ParamMouthForm: 0,    ParamMouthOpenY: 0,   ParamEyeLOpen: 1.2, ParamEyeROpen: 1.2 },
+  worried:     { ParamExpression: 5, ParamMouthForm: -1,   ParamMouthOpenY: 0,   ParamEyeLOpen: 1.2, ParamEyeROpen: 1.2 },
   speak_a:     { ParamExpression: 1, ParamMouthForm: 0,    ParamMouthOpenY: 0.6, ParamEyeLOpen: 1.2, ParamEyeROpen: 1.2 },
   speak_o:     { ParamExpression: 1, ParamMouthForm: 0.5,  ParamMouthOpenY: 0,   ParamEyeLOpen: 1.2, ParamEyeROpen: 1.2 }
-});
-
-const MOUTH_PARTS = Object.freeze([
-  'MOUTH_00_DEFAULT_EXACT',
-  'MOUTH_01_CLOSED_NEUTRAL',
-  'MOUTH_02_SMILE',
-  'MOUTH_03_TROUBLED_FLAT',
-  'MOUTH_04_SMALL_OPEN',
-  'MOUTH_05_MEDIUM_OPEN',
-  'MOUTH_06_WIDE_OPEN',
-  'MOUTH_07_ROUNDED_VOWEL'
-]);
-
-const EXPRESSION_MOUTH_PART = Object.freeze({
-  default: 'MOUTH_00_DEFAULT_EXACT',
-  half_blink: 'MOUTH_00_DEFAULT_EXACT',
-  closed: 'MOUTH_01_CLOSED_NEUTRAL',
-  soft_smile: 'MOUTH_02_SMILE',
-  annoyed: 'MOUTH_03_TROUBLED_FLAT',
-  worried: 'MOUTH_03_TROUBLED_FLAT',
-  // Wide-open is reserved exclusively for live speech amplitude. Even the
-  // surprised idle expression must stop at the medium-open artwork.
-  surprised: 'MOUTH_05_MEDIUM_OPEN',
-  speak_a: 'MOUTH_05_MEDIUM_OPEN',
-  speak_o: 'MOUTH_07_ROUNDED_VOWEL'
 });
 
 function showHint(message, duration = 1500) {
@@ -226,7 +203,7 @@ function applyActiveExpression() {
   if (!core || !parameters) return;
   for (const [id, value] of Object.entries(parameters)) {
     if (id === 'ParamEyeLOpen' || id === 'ParamEyeROpen') continue;
-    if (isSpeaking && id === 'ParamMouthOpenY') continue;
+    if (id === 'ParamMouthForm' || id === 'ParamMouthOpenY') continue;
     core.setParameterValueById(internalModel.getIdSafe(id), value);
   }
 
@@ -243,33 +220,7 @@ function applyActiveExpression() {
     parameters.ParamEyeROpen * blinkFactor
   );
 
-  // Every mouth variant is a separate Part in this model. Enforce a strict
-  // one-part-only invariant every frame; controlling only the open variants
-  // leaves a closed/smiling layer underneath and creates doubled mouths.
-  let visibleMouthPart = EXPRESSION_MOUTH_PART[activeExpression]
-    || 'MOUTH_00_DEFAULT_EXACT';
-  if (isSpeaking) {
-    core.setParameterValueById(internalModel.getIdSafe('ParamMouthOpenY'), speechMouthLevel);
-    if (speechMouthLevel >= 0.62) visibleMouthPart = 'MOUTH_06_WIDE_OPEN';
-    else if (speechMouthLevel >= 0.3) visibleMouthPart = 'MOUTH_05_MEDIUM_OPEN';
-    else if (speechMouthLevel >= 0.08) visibleMouthPart = 'MOUTH_04_SMALL_OPEN';
-    else visibleMouthPart = 'MOUTH_01_CLOSED_NEUTRAL';
-  }
-  for (const partId of MOUTH_PARTS) {
-    core.setPartOpacityById(internalModel.getIdSafe(partId), partId === visibleMouthPart ? 1 : 0);
-  }
-  if (!mouthInvariantWarningShown && typeof core.getPartOpacityById === 'function') {
-    const visibleParts = MOUTH_PARTS.filter((partId) => (
-      core.getPartOpacityById(internalModel.getIdSafe(partId)) > 0.01
-    ));
-    if (visibleParts.length !== 1 || visibleParts[0] !== visibleMouthPart) {
-      mouthInvariantWarningShown = true;
-      console.error('Mouth-part exclusivity invariant failed:', {
-        expected: visibleMouthPart,
-        visible: visibleParts
-      });
-    }
-  }
+  mouthController?.apply(activeExpression, isSpeaking, speechMouthLevel);
 }
 
 function updateSpeechMouth() {
@@ -289,12 +240,13 @@ function updateSpeechMouth() {
 }
 
 function finishSpeech(token, error = null) {
-  if (token !== speechToken) return;
+  if (!token || token !== speechToken || !isSpeaking) return;
+  // Invalidate awaited resume()/play() calls before tearing down media.
+  speechToken = 0;
   isSpeaking = false;
   speechMouthLevel = 0;
-  if (activeAudioSource) {
-    try { activeAudioSource.disconnect(); } catch { /* already disconnected */ }
-  }
+  disposeAudio(activeAudio, activeAudioSource);
+  try { audioAnalyser?.disconnect(); } catch { /* already disconnected */ }
   activeAudioSource = null;
   activeAudio = null;
   audioAnalyser = null;
@@ -305,14 +257,17 @@ function finishSpeech(token, error = null) {
   if (expressionBeforeSpeechExpiresAt === 0 || remainingExpressionMs > 0) {
     setExpression(expressionBeforeSpeech || 'default', Math.max(0, remainingExpressionMs));
   } else {
-    setExpression('default');
+    setExpression(persistentExpression);
   }
   expressionBeforeSpeech = 'default';
   expressionBeforeSpeechExpiresAt = 0;
   window.desktopPet.speechEnded(token);
   if (error) {
+    const previousContext = audioContext;
+    audioContext = null;
+    previousContext?.close().catch(() => {});
     console.error('Unable to play Yukino voice:', error);
-    showHint('语音播放失败，请先生成语音素材', 2600);
+    showHint('这句语音未能完成，可重新点播。', 2600);
   }
 }
 
@@ -328,11 +283,11 @@ function disposeAudio(audio, source) {
 }
 
 async function speakDialogue(dialogue) {
-  if (!dialogue?.file) return;
-  const token = ++speechToken;
-  if (activeAudio) {
-    disposeAudio(activeAudio, activeAudioSource);
-  }
+  const token = Number(dialogue?.speechToken);
+  if (!Number.isSafeInteger(token) || token <= lastReceivedSpeechToken) return;
+  lastReceivedSpeechToken = token;
+  if (isSpeaking) finishSpeech(speechToken);
+  speechToken = token;
   activeAudio = null;
   activeAudioSource = null;
   audioAnalyser = null;
@@ -347,18 +302,19 @@ async function speakDialogue(dialogue) {
   setExpression(dialogue.expression || 'default');
 
   try {
-    audioContext ||= new AudioContext();
-    await audioContext.resume();
+    if (!dialogue.file) throw new Error('Missing voice file');
+    const context = audioContext ||= new AudioContext();
+    await context.resume();
     if (token !== speechToken) return;
     const audioUrl = new URL(`../assets/voice/${dialogue.file}`, window.location.href).href;
     const audio = new Audio(audioUrl);
     audio.preload = 'auto';
-    const source = audioContext.createMediaElementSource(audio);
-    const analyser = audioContext.createAnalyser();
+    const source = context.createMediaElementSource(audio);
+    const analyser = context.createAnalyser();
     analyser.fftSize = 512;
     analyser.smoothingTimeConstant = 0.42;
     source.connect(analyser);
-    analyser.connect(audioContext.destination);
+    analyser.connect(context.destination);
 
     if (token !== speechToken) {
       disposeAudio(audio, source);
@@ -386,6 +342,15 @@ async function speakDialogue(dialogue) {
   } catch (error) {
     if (token === speechToken) finishSpeech(token, error);
   }
+}
+
+function cancelSpeech(payload) {
+  if (Number(payload?.token) !== speechToken || !isSpeaking) return;
+  finishSpeech(speechToken, payload.reason ? new Error(payload.reason) : null);
+  // A suspended or broken device must not poison the next attempt.
+  const previousContext = audioContext;
+  audioContext = null;
+  previousContext?.close().catch(() => {});
 }
 
 function reportClassifiedInteraction(type) {
@@ -431,12 +396,22 @@ function setExpression(name, restoreAfter = 0) {
   window.clearTimeout(resetExpressionTimer);
   resetExpressionTimer = null;
   activeExpression = name;
-  activeExpressionExpiresAt = restoreAfter > 0 && name !== 'default'
+  activeExpressionExpiresAt = restoreAfter > 0
     ? performance.now() + restoreAfter
     : 0;
-  if (restoreAfter > 0 && name !== 'default') {
-    resetExpressionTimer = window.setTimeout(() => setExpression('default'), restoreAfter);
+  if (restoreAfter > 0) {
+    resetExpressionTimer = window.setTimeout(() => setExpression(persistentExpression), restoreAfter);
   }
+}
+
+function setUserExpression(name) {
+  if (!model || !EXPRESSION_PARAMETERS[name]) return;
+  persistentExpression = name;
+  if (isSpeaking) {
+    expressionBeforeSpeech = name;
+    expressionBeforeSpeechExpiresAt = 0;
+  }
+  setExpression(name);
 }
 
 function setParameter(id, value) {
@@ -472,6 +447,10 @@ async function loadModel() {
     model.anchor.set(0, 0);
     model.eventMode = 'static';
     app.stage.addChild(model);
+    mouthController = YukinoMouth.create(
+      model.internalModel.coreModel,
+      (id) => model.internalModel.getIdSafe(id)
+    );
     model.internalModel.on('beforeModelUpdate', applyActiveExpression);
     applyModelLayout();
     app.ticker.add(updateSpeechMouth);
@@ -488,10 +467,12 @@ async function loadModel() {
     status.classList.add('hidden');
     window.setTimeout(() => status.remove(), 250);
     showHint('拖动移动 · 滚轮缩放 · 右键菜单', 2600);
+    window.desktopPet.rendererReady();
   } catch (error) {
     console.error(error);
     status.textContent = `模型载入失败：${error.message || error}`;
     status.classList.add('error');
+    window.desktopPet.rendererFailed(String(error.message || error));
   }
 }
 
@@ -515,6 +496,7 @@ async function boot() {
     console.error(error);
     status.textContent = `渲染器启动失败：${error.message || error}`;
     status.classList.add('error');
+    window.desktopPet.rendererFailed(String(error.message || error));
   }
 }
 
@@ -583,8 +565,9 @@ window.addEventListener('resize', () => {
   applyModelLayout();
   refreshHitMaskSoon();
 });
-window.desktopPet.onExpression((name) => setExpression(name));
+window.desktopPet.onExpression((name) => setUserExpression(name));
 window.desktopPet.onSpeak((dialogue) => speakDialogue(dialogue));
+window.desktopPet.onSpeechCancelled(cancelSpeech);
 window.desktopPet.onScaleStep((amount) => setUserScale(userScale + amount));
 window.desktopPet.onScaleReset(() => setUserScale(1));
 window.desktopPet.onPointerPosition((point) => {

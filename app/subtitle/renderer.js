@@ -6,12 +6,16 @@ const subtitleText = document.getElementById('subtitle-text');
 let activeToken = 0;
 let segmentTimer = null;
 let hideTimer = null;
+let replaceTimer = null;
 
 function clearTimers() {
   window.clearTimeout(segmentTimer);
   window.clearTimeout(hideTimer);
+  window.clearTimeout(replaceTimer);
   segmentTimer = null;
   hideTimer = null;
+  replaceTimer = null;
+  subtitleText.classList.remove('changing');
 }
 
 function splitSubtitle(text) {
@@ -30,9 +34,10 @@ function splitSubtitle(text) {
   return second ? [first.trim(), second.trim()] : [normalized];
 }
 
-function replaceText(text) {
+function replaceText(text, token) {
   subtitleText.classList.add('changing');
-  window.setTimeout(() => {
+  replaceTimer = window.setTimeout(() => {
+    if (activeToken !== token) return;
     subtitleText.textContent = text;
     subtitleText.classList.remove('changing');
   }, 100);
@@ -68,14 +73,14 @@ function showSubtitle(payload) {
   const segments = splitSubtitle(text);
   subtitleText.textContent = segments[0];
   cloud.classList.remove('leaving');
-  window.requestAnimationFrame(() => cloud.classList.add('visible'));
+  window.requestAnimationFrame(() => { if (activeToken === token) cloud.classList.add('visible'); });
 
   if (segments.length > 1) {
     const durationMs = Math.max(3600, Number(payload.durationMs) || 7000);
     const share = segments[0].length / (segments[0].length + segments[1].length);
     const switchAt = Math.max(1800, Math.min(durationMs - 1800, durationMs * share));
     segmentTimer = window.setTimeout(() => {
-      if (activeToken === token) replaceText(segments[1]);
+      if (activeToken === token) replaceText(segments[1], token);
     }, switchAt);
   }
 }

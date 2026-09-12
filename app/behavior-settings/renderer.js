@@ -9,6 +9,9 @@ const saveButton = document.querySelector('#save');
 const message = document.querySelector('#message');
 
 function render(settings) {
+  if (!settings || typeof settings !== 'object' || Array.isArray(settings)) {
+    throw new Error('主动行为设置暂不可用，请关闭此窗口后重试。');
+  }
   enabled.checked = settings.proactiveEnabled !== false;
   frequency.value = settings.frequency;
   weatherMode.value = settings.weatherMode;
@@ -30,10 +33,16 @@ saveButton.addEventListener('click', async () => {
     render(settings);
     message.textContent = '设置已立即生效。';
   } catch (error) {
-    message.textContent = error?.message || '保存失败。';
+    message.textContent = `保存失败：${error?.message || '请稍后重试。'}`;
   } finally {
     saveButton.disabled = false;
   }
 });
 
-window.behaviorSettings.get().then(render);
+saveButton.disabled = true;
+window.behaviorSettings.get().then((settings) => {
+  render(settings);
+  saveButton.disabled = false;
+}).catch((error) => {
+  message.textContent = `读取设置失败：${error?.message || '请关闭此窗口后重试。'}`;
+});

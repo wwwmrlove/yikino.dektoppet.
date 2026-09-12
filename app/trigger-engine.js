@@ -2,6 +2,8 @@
 
 const fs = require('fs');
 const path = require('path');
+const { createJsonStore } = require('./json-store');
+const jsonStore = createJsonStore(fs);
 const {
   FREQUENCY_PROFILES,
   isQuietTime,
@@ -9,7 +11,6 @@ const {
 } = require('./behavior-settings');
 const {
   coordinateQueue,
-  takeNextEvent,
   pruneExpired
 } = require('./behavior-coordinator');
 
@@ -17,6 +18,17 @@ const AWAY_SECONDS = 10 * 60;
 const LONG_AWAY_SECONDS = 30 * 60;
 const REST_RESET_SECONDS = 5 * 60;
 const ACTIVE_IDLE_LIMIT_SECONDS = 60;
+const INTERACTION_COOLDOWN_MS = 8 * 1000;
+const INTERACTION_LIFETIME_MS = 5 * 1000;
+const WEATHER_MAX_AGE_MS = 6 * 60 * 60 * 1000;
+const SPEECH_START_TIMEOUT_MS = 10 * 1000;
+const SPEECH_END_BUFFER_MS = 5 * 1000;
+const SPEECH_END_MIN_TIMEOUT_MS = 15 * 1000;
+const SPEECH_END_MAX_TIMEOUT_MS = 3 * 60 * 1000;
+const SPEECH_END_FALLBACK_TIMEOUT_MS = 60 * 1000;
+// Assigned by the main process, not the renderer: reloads must never reuse an
+// identifier that an old audio element could still report as ended.
+let lastAssignedSpeechToken = 0;
 const SEVERE_WEATHER_TRIGGERS = new Set([
   'weather_heavy_rain',
   'weather_thunder',
@@ -90,14 +102,22 @@ function createTriggerEngine({
   powerMonitor,
   dialogues,
   sendSpeech,
+  cancelSpeech = () => {},
+  rendererReady: initialRendererReady = true,
   getWeatherContext = () => null,
   getBehaviorSettings = () => ({})
 }) {
   const triggerStatePath = path.join(app.getPath('userData'), 'trigger-state.json');
   let timer = null;
   let started = false;
+  let stopped = false;
+  let rendererReady = Boolean(initialRendererReady);
   let speechActive = false;
   let activeSpeechToken = 0;
+  let speechPhase = 'idle';
+  let speechWatchdog = null;
+  let startupTimer = null;
+  const resumeTimers = new Set();
   let eventQueue = [];
   let awaySince = null;
   let activeWorkMs = 0;
@@ -125,36 +145,27 @@ function createTriggerEngine({
   }
 
   function readTriggerState() {
-    try {
-      const parsed = JSON.parse(fs.readFileSync(triggerStatePath, 'utf8'));
-      return {
-        date: parsed.date || dateKey(),
-        autoCount: Number(parsed.autoCount) || 0,
-        lastSpeechAt: Number(parsed.lastSpeechAt) || 0,
-        triggerLastAt: parsed.triggerLastAt || {},
-        dialogueLastAt: parsed.dialogueLastAt || {},
-        greetedSlots: parsed.greetedSlots || {},
-        recentIds: Array.isArray(parsed.recentIds) ? parsed.recentIds.slice(-10) : [],
-        weatherSignature: parsed.weatherSignature || ''
-      };
-    } catch {
-      return {
-        date: dateKey(),
-        autoCount: 0,
-        lastSpeechAt: 0,
-        triggerLastAt: {},
-        dialogueLastAt: {},
-        greetedSlots: {},
-        recentIds: [],
-        weatherSignature: ''
-      };
-    }
+    const parsed = jsonStore.read(triggerStatePath, {});
+    const positiveNumber = (value) => Number.isFinite(value) && value >= 0 ? value : 0;
+    const record = (value) => value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+    const timestamps = (value) => Object.fromEntries(Object.entries(record(value))
+      .filter(([, timestamp]) => Number.isFinite(timestamp) && timestamp >= 0));
+    return {
+      date: typeof parsed.date === 'string' ? parsed.date : dateKey(),
+      autoCount: Math.floor(positiveNumber(parsed.autoCount)),
+      lastSpeechAt: positiveNumber(parsed.lastSpeechAt),
+      lastInteractionAt: positiveNumber(parsed.lastInteractionAt),
+      triggerLastAt: timestamps(parsed.triggerLastAt),
+      dialogueLastAt: timestamps(parsed.dialogueLastAt),
+      greetedSlots: record(parsed.greetedSlots),
+      recentIds: Array.isArray(parsed.recentIds) ? parsed.recentIds.filter((id) => typeof id === 'string').slice(-10) : [],
+      weatherSignature: typeof parsed.weatherSignature === 'string' ? parsed.weatherSignature : ''
+    };
   }
 
   function saveTriggerState() {
     try {
-      fs.mkdirSync(path.dirname(triggerStatePath), { recursive: true });
-      fs.writeFileSync(triggerStatePath, JSON.stringify(state, null, 2), 'utf8');
+      jsonStore.write(triggerStatePath, state);
     } catch (error) {
       console.error('Unable to save trigger state:', error);
     }
@@ -194,11 +205,13 @@ function createTriggerEngine({
 
   function recordDispatch(dialogue, triggerName, manual) {
     const now = Date.now();
-    state.lastSpeechAt = now;
+    const interaction = triggerName.startsWith('click_');
+    if (interaction) state.lastInteractionAt = now;
+    else state.lastSpeechAt = now;
     state.dialogueLastAt[dialogue.id] = now;
     state.recentIds = [...state.recentIds.filter((id) => id !== dialogue.id), dialogue.id].slice(-10);
     if (!manual) {
-      state.autoCount += 1;
+      if (!interaction) state.autoCount += 1;
       state.triggerLastAt[triggerName] = now;
       if (triggerName.startsWith('time_')) state.greetedSlots[triggerName] = state.date;
     }
@@ -206,26 +219,96 @@ function createTriggerEngine({
   }
 
   function dispatch(dialogue, triggerName, manual = false) {
-    if (!dialogue) return false;
+    if (!dialogue || !rendererReady || stopped || speechActive) return false;
+    if (lastAssignedSpeechToken >= Number.MAX_SAFE_INTEGER) {
+      onRendererUnavailable();
+      return false;
+    }
     // Reserve the speaking slot before IPC delivery. Without this reservation,
     // two menu clicks in the same event-loop turn can start two audio elements.
     speechActive = true;
-    activeSpeechToken = 0;
-    sendSpeech({ ...dialogue, triggerName, manual });
+    activeSpeechToken = ++lastAssignedSpeechToken;
+    speechPhase = 'starting';
+    const token = activeSpeechToken;
+    armSpeechWatchdog(token, SPEECH_START_TIMEOUT_MS, 'speech-start-timeout');
+    try {
+      if (sendSpeech({ ...dialogue, triggerName, manual, speechToken: token }) === false) {
+        throw new Error('Speech delivery failed');
+      }
+    } catch (error) {
+      console.error('Unable to deliver speech:', error);
+      // A failed IPC delivery means the renderer is not known to be usable.
+      // Explicit ready notification is required before trying another event.
+      onRendererUnavailable();
+      return false;
+    }
     recordDispatch(dialogue, triggerName, manual);
     return true;
   }
 
-  function weatherTriggerName(context) {
-    if (!context) return null;
-    if (context.state === 'thunder') return 'weather_thunder';
-    if (context.state === 'heavy_rain') return 'weather_heavy_rain';
-    if (context.state === 'snow') return 'weather_snow';
-    if (context.state === 'rain') return 'weather_rain';
-    if (context.hot) return 'weather_hot';
-    if (context.cold) return 'weather_cold';
-    if (context.windy) return 'weather_windy';
-    return `weather_${context.state}`;
+  function clearSpeechSlot() {
+    if (speechWatchdog !== null) clearTimeout(speechWatchdog);
+    speechWatchdog = null;
+    speechActive = false;
+    activeSpeechToken = 0;
+    speechPhase = 'idle';
+  }
+
+  function armSpeechWatchdog(token, timeoutMs, reason) {
+    if (speechWatchdog !== null) clearTimeout(speechWatchdog);
+    speechWatchdog = setTimeout(() => {
+      speechWatchdog = null;
+      if (!speechActive || token !== activeSpeechToken) return;
+      speechPhase = 'cancelling';
+      try {
+        // IPC messages from the same sender are ordered. Enqueue cancellation
+        // before any replacement speech so recovery cannot create two players.
+        if (cancelSpeech(token, reason) === false) throw new Error('Speech cancellation delivery failed');
+      } catch (error) {
+        console.error('Unable to cancel timed-out speech:', error);
+        onRendererUnavailable();
+        return;
+      }
+      clearSpeechSlot();
+      flushQueue();
+    }, timeoutMs);
+  }
+
+  function onRendererUnavailable() {
+    rendererReady = false;
+    eventQueue = [];
+    clearSpeechSlot();
+  }
+
+  function onRendererReady() {
+    if (stopped) return false;
+    rendererReady = true;
+    flushQueue();
+    return true;
+  }
+
+  function validWeatherContext(context, now = Date.now()) {
+    if (!context || typeof context.locationId !== 'string' || !context.locationId
+      || !Number.isFinite(context.fetchedAt) || context.fetchedAt <= 0) return false;
+    const age = now - context.fetchedAt;
+    return age <= WEATHER_MAX_AGE_MS && age >= -5 * 60 * 1000;
+  }
+
+  function weatherTriggers(context) {
+    if (!validWeatherContext(context)) return [];
+    const present = new Set([`weather_${context.state}`]);
+    if (context.hot) present.add('weather_hot');
+    if (context.cold) present.add('weather_cold');
+    if (context.windy) present.add('weather_windy');
+    return [
+      'weather_thunder', 'weather_heavy_rain', 'weather_snow',
+      'weather_hot', 'weather_cold', 'weather_windy',
+      'weather_rain', 'weather_cloudy', 'weather_clear'
+    ].filter((triggerName) => present.has(triggerName));
+  }
+
+  function weatherTriggerName(context, manual = false) {
+    return weatherTriggers(context).find((triggerName) => weatherAllowed(triggerName, manual)) || null;
   }
 
   function weatherSummary(context) {
@@ -235,16 +318,19 @@ function createTriggerEngine({
     const apparent = Number.isFinite(context.apparentTemperature)
       ? `，体感${Math.round(context.apparentTemperature)}℃`
       : '';
-    return `${context.city}：${context.label}${temperature ? `，${temperature}` : ''}${apparent}。`;
+    const conditions = [context.hot && '高温', context.cold && '低温', context.windy && '大风'].filter(Boolean);
+    const combined = conditions.length ? `（${conditions.join('、')}）` : '';
+    return `${context.city}：${context.label}${temperature ? `，${temperature}` : ''}${apparent}${combined}。`;
   }
 
-  function prepareDialogue(dialogue, triggerName) {
+  function prepareDialogue(dialogue, triggerName, context = getWeatherContext()) {
+    if (!dialogue) return null;
     if (!triggerName.startsWith('weather_')) return dialogue;
-    const context = getWeatherContext();
-    if (!context) return null;
+    if (!validWeatherContext(context)) return null;
+    const raw = dialogues.find((item) => item.id === dialogue.id) || dialogue;
     return {
-      ...dialogue,
-      translation: `${weatherSummary(context)}${dialogue.translation}`,
+      ...raw,
+      translation: `${weatherSummary(context)}${raw.translation || ''}`,
       weatherContext: context
     };
   }
@@ -257,12 +343,19 @@ function createTriggerEngine({
   }
 
   function queueDialogue(dialogue, triggerName, options = {}) {
-    if (!dialogue) return false;
+    if (!dialogue || !rendererReady || stopped) return false;
+    const weather = triggerName.startsWith('weather_');
+    const context = weather ? getWeatherContext() : null;
+    if (weather && !validWeatherContext(context)) return false;
+    const now = Date.now();
+    const interaction = triggerName.startsWith('click_');
     const event = {
       dialogue,
       triggerName,
       manual: Boolean(options.manual),
       bypassCooldown: Boolean(options.bypassCooldown),
+      ...(weather ? { weatherLocationId: context.locationId } : {}),
+      ...(interaction ? { expiresAt: now + INTERACTION_LIFETIME_MS } : {}),
       priority: options.manual
         ? 100
         : Math.max(Number(dialogue.priority) || 0, Number(options.priority) || 0)
@@ -277,6 +370,7 @@ function createTriggerEngine({
     const now = Date.now();
     const { settings, profile } = currentBehavior();
     const userInteraction = triggerName.startsWith('click_');
+    if (!options.force && userInteraction && now - state.lastInteractionAt < INTERACTION_COOLDOWN_MS) return false;
     if (!options.force && !userInteraction && !settings.proactiveEnabled) return false;
     if (!options.force && !userInteraction && isQuietTime(new Date(now), settings)) return false;
     if (!options.force && !userInteraction && state.autoCount >= profile.dailyLimit) return false;
@@ -291,9 +385,8 @@ function createTriggerEngine({
       Boolean(options.force),
       Boolean(options.force)
     );
-    const dialogue = selectedDialogue && prepareDialogue(selectedDialogue, triggerName);
-    if (!dialogue) return false;
-    return queueDialogue(dialogue, triggerName, {
+    if (!selectedDialogue) return false;
+    return queueDialogue(selectedDialogue, triggerName, {
       bypassCooldown: Boolean(options.force)
     });
   }
@@ -316,29 +409,42 @@ function createTriggerEngine({
 
   function announceWeather() {
     const context = getWeatherContext();
-    const triggerName = weatherTriggerName(context);
+    const triggerName = weatherTriggerName(context, true);
     if (!triggerName) return false;
     const selectedDialogue = selectDialogue(triggerName, Date.now(), true, true);
-    return queueDialogue(prepareDialogue(selectedDialogue, triggerName), triggerName, {
+    return queueDialogue(selectedDialogue, triggerName, {
       manual: true,
       bypassCooldown: true
     });
   }
 
-  function handleWeatherUpdate(nextContext, previousContext) {
-    if (!nextContext) return false;
+  function handleWeatherUpdate(nextContext, previousContext, meta = {}) {
+    const invalid = !validWeatherContext(nextContext);
+    const locationChanged = meta.reason === 'location-changed'
+      || (previousContext && nextContext && previousContext.locationId !== nextContext.locationId);
+    eventQueue = eventQueue.filter((event) => !event.triggerName.startsWith('weather_') || (
+      !invalid && !locationChanged && meta.reason !== 'disabled'
+      && event.weatherLocationId === nextContext.locationId
+      && event.triggerName === weatherTriggerName(nextContext, event.manual)
+    ));
     const previousSignature = state.weatherSignature;
-    state.weatherSignature = nextContext.signature;
+    state.weatherSignature = invalid ? '' : nextContext.signature;
     saveTriggerState();
-    if (!previousContext || !previousSignature || previousSignature === nextContext.signature) {
+    if (invalid || locationChanged || meta.reason === 'disabled' || meta.reason === 'refresh-failed'
+      || !previousContext || !previousSignature || previousSignature === nextContext.signature) {
+      flushQueue();
       return false;
     }
     const becameImportant = nextContext.severe
       || nextContext.state === 'snow'
       || nextContext.state === 'rain'
       || nextContext.hot
-      || nextContext.cold;
-    return becameImportant ? requestTrigger(weatherTriggerName(nextContext)) : false;
+      || nextContext.cold
+      || nextContext.windy;
+    const triggerName = weatherTriggerName(nextContext);
+    const requested = Boolean(becameImportant && triggerName && requestTrigger(triggerName));
+    flushQueue();
+    return requested;
   }
 
   function handleInteraction(type) {
@@ -406,27 +512,34 @@ function createTriggerEngine({
 
   function flushQueue() {
     eventQueue = pruneExpired(eventQueue);
-    if (!eventQueue.length || speechActive) return false;
+    if (!eventQueue.length) return false;
     const now = Date.now();
-    const next = eventQueue[0];
     const { settings, profile } = currentBehavior();
-    const userEvent = next.manual || next.family === 'interaction';
-    if (!userEvent && !settings.proactiveEnabled) {
-      eventQueue = eventQueue.filter((event) => (
-        event.manual || event.family === 'interaction'
-      ));
-      return false;
-    }
-    if (!userEvent && isQuietTime(new Date(now), settings)) return false;
-    if (!next.manual && next.family !== 'interaction' && state.autoCount >= profile.dailyLimit) {
-      eventQueue = eventQueue.filter((event) => event.manual || event.family === 'interaction');
-      return false;
-    }
-    const cooldownMs = profile.globalCooldownSeconds * 1000;
-    if (!next.bypassCooldown && now - state.lastSpeechAt < cooldownMs) return false;
-    const taken = takeNextEvent(eventQueue, now);
-    eventQueue = taken.queue;
-    return dispatch(taken.event.dialogue, taken.event.triggerName, taken.event.manual);
+    const context = getWeatherContext();
+    eventQueue = eventQueue.filter((event) => {
+      const userEvent = event.manual || event.family === 'interaction';
+      if (!userEvent && (!settings.proactiveEnabled || state.autoCount >= profile.dailyLimit)) return false;
+      if (!event.triggerName.startsWith('weather_')) return true;
+      return validWeatherContext(context, now) && event.weatherLocationId === context.locationId
+        && event.triggerName === weatherTriggerName(context, event.manual);
+    });
+    if (speechActive || !rendererReady || stopped) return false;
+    // A quiet-time or cooling-down reminder must not hide a permitted click or
+    // explicit menu request behind it. The queue is already priority ordered.
+    const index = eventQueue.findIndex((event) => {
+      const interaction = event.family === 'interaction';
+      if (event.manual) return true;
+      if (interaction) {
+        return event.bypassCooldown || (now - state.lastInteractionAt >= INTERACTION_COOLDOWN_MS
+          && now - (state.triggerLastAt[event.triggerName] || 0) >= TRIGGER_COOLDOWNS_MS[event.triggerName]);
+      }
+      if (isQuietTime(new Date(now), settings)) return false;
+      return event.bypassCooldown || now - state.lastSpeechAt >= profile.globalCooldownSeconds * 1000;
+    });
+    if (index < 0) return false;
+    const [next] = eventQueue.splice(index, 1);
+    const dialogue = prepareDialogue(next.dialogue, next.triggerName, context);
+    return dispatch(dialogue, next.triggerName, next.manual);
   }
 
   function tick() {
@@ -442,17 +555,25 @@ function createTriggerEngine({
 
   // Use a local timer wrapper because Electron's main process does not expose window.
   function scheduleResumeTrigger() {
-    setTimeout(() => requestTrigger('system_resume'), 3000);
+    if (!started) return;
+    const resumeTimer = setTimeout(() => {
+      resumeTimers.delete(resumeTimer);
+      if (started) requestTrigger('system_resume');
+    }, 3000);
+    resumeTimers.add(resumeTimer);
   }
 
   function start() {
     if (started) return;
     started = true;
+    stopped = false;
     lastTickAt = Date.now();
     timer = setInterval(tick, 15 * 1000);
     powerMonitor.on('resume', scheduleResumeTrigger);
     powerMonitor.on('unlock-screen', scheduleResumeTrigger);
-    setTimeout(() => {
+    startupTimer = setTimeout(() => {
+      startupTimer = null;
+      if (!started) return;
       const triggerName = getClockContext().scheduledTrigger;
       if (triggerName) requestTrigger(triggerName);
     }, 8 * 1000);
@@ -461,22 +582,37 @@ function createTriggerEngine({
   function stop() {
     if (timer) clearInterval(timer);
     timer = null;
+    if (startupTimer !== null) clearTimeout(startupTimer);
+    startupTimer = null;
+    for (const resumeTimer of resumeTimers) clearTimeout(resumeTimer);
+    resumeTimers.clear();
+    clearSpeechSlot();
+    eventQueue = [];
     powerMonitor.removeListener('resume', scheduleResumeTrigger);
     powerMonitor.removeListener('unlock-screen', scheduleResumeTrigger);
     started = false;
+    stopped = true;
   }
 
   function onSpeechStarted(payload) {
-    speechActive = true;
-    activeSpeechToken = Number(payload?.token) || activeSpeechToken;
+    const token = payload?.token;
+    if (!Number.isSafeInteger(token) || token <= 0 || token !== activeSpeechToken
+      || !speechActive || speechPhase !== 'starting' || !rendererReady || stopped) return false;
+    speechPhase = 'playing';
+    const durationMs = payload?.durationMs;
+    const timeoutMs = Number.isFinite(durationMs) && durationMs > 0
+      ? Math.min(SPEECH_END_MAX_TIMEOUT_MS, Math.max(SPEECH_END_MIN_TIMEOUT_MS, durationMs + SPEECH_END_BUFFER_MS))
+      : SPEECH_END_FALLBACK_TIMEOUT_MS;
+    armSpeechWatchdog(token, timeoutMs, 'speech-end-timeout');
+    return true;
   }
 
   function onSpeechEnded(token) {
-    const numericToken = Number(token) || 0;
-    if (activeSpeechToken && numericToken && numericToken !== activeSpeechToken) return;
-    speechActive = false;
-    activeSpeechToken = 0;
+    if (!Number.isSafeInteger(token) || token <= 0 || token !== activeSpeechToken
+      || !speechActive || speechPhase === 'cancelling') return false;
+    clearSpeechSlot();
     flushQueue();
+    return true;
   }
 
   function onSettingsChanged() {
@@ -501,11 +637,15 @@ function createTriggerEngine({
     handleInteraction,
     onSpeechStarted,
     onSpeechEnded,
+    onRendererUnavailable,
+    onRendererReady,
     onSettingsChanged,
     getDebugState: () => ({
       ...state,
       speechActive,
       activeSpeechToken,
+      speechPhase,
+      rendererReady,
       activeWorkMs,
       eventQueue
     })

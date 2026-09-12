@@ -2,6 +2,8 @@
 
 const fs = require('fs');
 const path = require('path');
+const { createJsonStore } = require('./json-store');
+const jsonStore = createJsonStore(fs);
 
 const REFRESH_INTERVAL_MS = 30 * 60 * 1000;
 const CACHE_TTL_MS = 30 * 60 * 1000;
@@ -17,16 +19,11 @@ const CHINA_LOCATION_INDEX = path.join(
 let chinaLocationRecords = null;
 
 function readJson(filePath, fallback) {
-  try {
-    return JSON.parse(fs.readFileSync(filePath, 'utf8'));
-  } catch {
-    return fallback;
-  }
+  return jsonStore.read(filePath, fallback);
 }
 
 function writeJson(filePath, value) {
-  fs.mkdirSync(path.dirname(filePath), { recursive: true });
-  fs.writeFileSync(filePath, JSON.stringify(value, null, 2), 'utf8');
+  jsonStore.write(filePath, value);
 }
 
 function weatherStateFromCode(code) {
@@ -162,11 +159,30 @@ function geometryCenter(geometry) {
   };
 }
 
-function buildContext(settings, cache) {
+function validCoordinates(location) {
+  return Number.isFinite(location?.latitude) && Math.abs(location.latitude) <= 90
+    && Number.isFinite(location?.longitude) && Math.abs(location.longitude) <= 180;
+}
+
+function locationId(location) {
+  if (!validCoordinates(location)) return '';
+  return `${location.latitude.toFixed(5)},${location.longitude.toFixed(5)}@${location.timezone || 'auto'}`;
+}
+
+function validCache(settings, cache) {
+  // Older caches did not record a location. They cannot safely be assigned to
+  // the currently selected city, even when their timestamp is recent.
+  return Boolean(cache && cache.locationId && cache.locationId === locationId(settings)
+    && Number.isFinite(cache.fetchedAt) && cache.fetchedAt > 0
+    && ['temperature', 'apparentTemperature', 'precipitation', 'weatherCode', 'windSpeed']
+      .every((key) => Number.isFinite(cache.current?.[key])));
+}
+
+function buildContext(settings, cache, now = Date.now()) {
   const current = cache?.current;
-  if (!settings.enabled || !current || !cache.fetchedAt) return null;
-  const ageMs = Date.now() - Number(cache.fetchedAt);
-  if (ageMs > STALE_CACHE_MS) return null;
+  if (!settings.enabled || !validCache(settings, cache)) return null;
+  const ageMs = now - cache.fetchedAt;
+  if (ageMs > STALE_CACHE_MS || ageMs < -5 * 60 * 1000) return null;
   const temperature = Number(current.temperature);
   const apparentTemperature = Number(current.apparentTemperature);
   const windSpeed = Number(current.windSpeed);
@@ -183,6 +199,7 @@ function buildContext(settings, cache) {
     Math.round(temperature / 3)
   ].join(':');
   return {
+    locationId: cache.locationId,
     city: settings.city,
     province: settings.province || '',
     district: settings.district || '',
@@ -209,66 +226,122 @@ function buildContext(settings, cache) {
   };
 }
 
-async function fetchJson(url, timeoutMs = REQUEST_TIMEOUT_MS) {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+async function fetchJson(url, { controller, fetchImpl, timers }) {
+  const timeout = timers.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   try {
-    const response = await fetch(url, {
+    const response = await fetchImpl(url, {
       signal: controller.signal,
-      headers: { 'User-Agent': 'YukinoDesktopPet/1.4.0-rc1' }
+      headers: { 'User-Agent': 'YukinoDesktopPet/1.4' }
     });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     return await response.json();
   } finally {
-    clearTimeout(timeout);
+    timers.clearTimeout(timeout);
   }
 }
 
-function createWeatherService({ app, onUpdate = () => {} }) {
+function createWeatherService({
+  app,
+  onUpdate = () => {},
+  storage = { readJson, writeJson },
+  fetchImpl = globalThis.fetch,
+  now = Date.now,
+  timers = { setTimeout, clearTimeout, setInterval, clearInterval },
+  resolveLocation = resolveChinaLocation
+}) {
   const settingsPath = path.join(app.getPath('userData'), 'weather-settings.json');
   const cachePath = path.join(app.getPath('userData'), 'weather-cache.json');
-  let settings = readJson(settingsPath, {
+  const defaults = {
     enabled: false,
     city: '',
     latitude: null,
     longitude: null,
     timezone: 'auto'
-  });
-  let cache = readJson(cachePath, null);
+  };
+  const storedSettings = storage.readJson(settingsPath, defaults);
+  let settings = storedSettings && typeof storedSettings === 'object' && !Array.isArray(storedSettings)
+    ? { ...defaults, ...storedSettings } : defaults;
+  for (const field of ['city', 'query', 'province', 'municipality', 'district']) {
+    settings[field] = typeof settings[field] === 'string' ? settings[field] : '';
+  }
+  settings.timezone = typeof settings.timezone === 'string' && settings.timezone ? settings.timezone : 'auto';
+  settings.precision = ['district', 'city', 'province'].includes(settings.precision) ? settings.precision : 'city';
+  settings.enabled = settings.enabled === true && Boolean(settings.city) && validCoordinates(settings);
+  settings.locationId = locationId(settings);
+  const storedCache = storage.readJson(cachePath, null);
+  let cache = validCache(settings, storedCache) ? storedCache : null;
   let refreshTimer = null;
+  let startupTimer = null;
   let retryTimer = null;
   let retryIndex = 0;
-  let updating = false;
+  let requestVersion = 0;
+  let activeRequest = null;
   let lastError = '';
+  let dataSource = cache ? 'cache' : 'none';
 
-  function saveSettings() {
-    writeJson(settingsPath, settings);
+  function clearRetry() {
+    if (retryTimer) timers.clearTimeout(retryTimer);
+    retryTimer = null;
+  }
+
+  function invalidateRequest() {
+    requestVersion += 1;
+    activeRequest?.controller.abort();
+    activeRequest = null;
+    clearRetry();
+  }
+
+  function beginRequest(kind) {
+    invalidateRequest();
+    const request = { version: requestVersion, kind, controller: new AbortController() };
+    activeRequest = request;
+    return request;
+  }
+
+  function isCurrent(request) {
+    return activeRequest === request && request.version === requestVersion;
+  }
+
+  function notify(previousContext, reason) {
+    onUpdate(getContext(), previousContext, { reason, locationId: locationId(settings) });
+  }
+
+  function result(kind, outcome, extra = {}) {
+    return { ...getStatus(), operation: { kind, outcome, ...extra } };
   }
 
   function scheduleRetry() {
     if (retryTimer || !settings.enabled) return;
     const delay = RETRY_DELAYS_MS[Math.min(retryIndex, RETRY_DELAYS_MS.length - 1)];
     retryIndex += 1;
-    retryTimer = setTimeout(() => {
+    retryTimer = timers.setTimeout(() => {
       retryTimer = null;
       refresh(true).catch(() => {});
     }, delay);
   }
 
-  async function refresh(force = false) {
-    if (!settings.enabled || !Number.isFinite(settings.latitude)
-      || !Number.isFinite(settings.longitude)) return getStatus();
-    if (updating) return getStatus();
-    if (!force && cache?.fetchedAt && Date.now() - cache.fetchedAt < CACHE_TTL_MS) {
-      return getStatus();
+  function refresh(force = false) {
+    if (!settings.enabled || !validCoordinates(settings)) return Promise.resolve(result('refresh', 'disabled'));
+    if (activeRequest) {
+      return activeRequest.promise || Promise.resolve(result('refresh', 'busy'));
+    }
+    if (!force && getContext() && now() - cache.fetchedAt < CACHE_TTL_MS) {
+      return Promise.resolve(result('refresh', 'cached'));
     }
 
-    updating = true;
-    const previousContext = buildContext(settings, cache);
+    const request = beginRequest('refresh');
+    const requestSettings = { ...settings };
+    request.promise = performRefresh(request, requestSettings);
+    return request.promise;
+  }
+
+  async function performRefresh(request, requestSettings) {
+    const previousContext = getContext();
+    let outcome = 'success';
     try {
       const parameters = new URLSearchParams({
-        latitude: String(settings.latitude),
-        longitude: String(settings.longitude),
+        latitude: String(requestSettings.latitude),
+        longitude: String(requestSettings.longitude),
         current: [
           'temperature_2m',
           'apparent_temperature',
@@ -281,12 +354,19 @@ function createWeatherService({ app, onUpdate = () => {} }) {
           'temperature_2m_min',
           'precipitation_probability_max'
         ].join(','),
-        timezone: settings.timezone || 'auto',
+        timezone: requestSettings.timezone || 'auto',
         forecast_days: '1'
       });
-      const payload = await fetchJson(`https://api.open-meteo.com/v1/forecast?${parameters}`);
-      cache = {
-        fetchedAt: Date.now(),
+      const payload = await fetchJson(`https://api.open-meteo.com/v1/forecast?${parameters}`, {
+        controller: request.controller, fetchImpl, timers
+      });
+      if (!isCurrent(request) || locationId(settings) !== locationId(requestSettings) || !settings.enabled) {
+        return result('refresh', 'superseded');
+      }
+      const nextCache = {
+        version: 2,
+        locationId: locationId(requestSettings),
+        fetchedAt: now(),
         current: {
           temperature: payload.current?.temperature_2m,
           apparentTemperature: payload.current?.apparent_temperature,
@@ -300,19 +380,25 @@ function createWeatherService({ app, onUpdate = () => {} }) {
           precipitationProbability: payload.daily?.precipitation_probability_max?.[0]
         }
       };
-      writeJson(cachePath, cache);
+      if (!validCache(requestSettings, nextCache)) throw new Error('天气服务返回的数据不完整，请稍后重试。');
+      storage.writeJson(cachePath, nextCache);
+      cache = nextCache;
       retryIndex = 0;
       lastError = '';
-      const nextContext = buildContext(settings, cache);
-      onUpdate(nextContext, previousContext);
+      dataSource = 'live';
+      notify(previousContext, 'refreshed');
     } catch (error) {
-      lastError = error?.message || String(error);
+      if (!isCurrent(request)) return result('refresh', 'superseded');
+      outcome = 'failed';
+      lastError = request.controller.signal.aborted ? '天气请求超时，请稍后重试。' : error?.message || String(error);
+      dataSource = getContext() ? 'offline-cache' : 'none';
       console.error('Unable to refresh weather:', error);
       scheduleRetry();
+      notify(previousContext, 'refresh-failed');
     } finally {
-      updating = false;
+      if (isCurrent(request)) activeRequest = null;
     }
-    return getStatus();
+    return result('refresh', outcome);
   }
 
   async function setCity(cityName) {
@@ -324,12 +410,13 @@ function createWeatherService({ app, onUpdate = () => {} }) {
       language: 'zh',
       format: 'json'
     });
-    updating = true;
+    const request = beginRequest('set-city');
     lastError = '';
     try {
-      const domesticLocation = resolveChinaLocation(city);
+      let nextSettings;
+      const domesticLocation = resolveLocation(city);
       if (domesticLocation) {
-        settings = {
+        nextSettings = {
           enabled: true,
           query: city,
           city: locationLabel(domesticLocation),
@@ -343,11 +430,13 @@ function createWeatherService({ app, onUpdate = () => {} }) {
         };
       } else {
         const payload = await fetchJson(
-          `https://geocoding-api.open-meteo.com/v1/search?${parameters}`
+          `https://geocoding-api.open-meteo.com/v1/search?${parameters}`,
+          { controller: request.controller, fetchImpl, timers }
         );
+        if (!isCurrent(request)) return result('set-city', 'superseded');
         const location = payload.results?.[0];
         if (!location) throw new Error(`没有找到地点“${city}”，请填写完整的省、市、区县名称。`);
-        settings = {
+        nextSettings = {
           enabled: true,
           query: city,
           city: [location.name, location.admin1].filter(Boolean).join('，'),
@@ -360,47 +449,74 @@ function createWeatherService({ app, onUpdate = () => {} }) {
           timezone: location.timezone || 'auto'
         };
       }
-      saveSettings();
-      cache = null;
+      if (!validCoordinates(nextSettings)) throw new Error('该地点缺少有效坐标，请重新选择。');
+      nextSettings.locationId = locationId(nextSettings);
+      const previousContext = getContext();
+      const changedLocation = locationId(settings) !== nextSettings.locationId;
+      // Invalidate on disk before changing settings, so a restart after a
+      // failed fetch cannot relabel the old city's weather as the new city.
+      if (changedLocation) storage.writeJson(cachePath, {});
+      storage.writeJson(settingsPath, nextSettings);
+      settings = nextSettings;
+      if (changedLocation) {
+        cache = null;
+        dataSource = 'none';
+      }
+      retryIndex = 0;
+      notify(previousContext, changedLocation ? 'location-changed' : 'enabled');
     } catch (error) {
+      if (!isCurrent(request)) return result('set-city', 'superseded');
       lastError = error?.message || String(error);
       throw error;
     } finally {
-      updating = false;
+      if (isCurrent(request)) activeRequest = null;
     }
-    return refresh(true);
+    const refreshed = await refresh(true);
+    return { ...refreshed, operation: { ...refreshed.operation, kind: 'set-city', settingsSaved: true } };
   }
 
   function disable() {
-    settings = { ...settings, enabled: false };
-    saveSettings();
-    return getStatus();
+    const previousContext = getContext();
+    const nextSettings = { ...settings, enabled: false };
+    storage.writeJson(settingsPath, nextSettings);
+    invalidateRequest();
+    settings = nextSettings;
+    lastError = '';
+    notify(previousContext, 'disabled');
+    return result('disable', 'success');
   }
 
   function getContext() {
-    return buildContext(settings, cache);
+    return buildContext(settings, cache, now());
   }
 
   function getStatus() {
+    const context = getContext();
     return {
       settings: { ...settings },
-      context: getContext(),
-      updating,
-      lastError
+      context,
+      updating: Boolean(activeRequest),
+      lastError,
+      lastSuccessAt: cache?.fetchedAt || null,
+      dataSource: !settings.enabled ? 'disabled' : (cache && !context ? 'expired' : dataSource)
     };
   }
 
   function start() {
     if (refreshTimer) return;
-    refreshTimer = setInterval(() => refresh(false).catch(() => {}), REFRESH_INTERVAL_MS);
-    if (settings.enabled) setTimeout(() => refresh(false).catch(() => {}), 5000);
+    refreshTimer = timers.setInterval(() => refresh(false).catch(() => {}), REFRESH_INTERVAL_MS);
+    if (settings.enabled) startupTimer = timers.setTimeout(() => {
+      startupTimer = null;
+      refresh(false).catch(() => {});
+    }, 5000);
   }
 
   function stop() {
-    if (refreshTimer) clearInterval(refreshTimer);
-    if (retryTimer) clearTimeout(retryTimer);
+    if (refreshTimer) timers.clearInterval(refreshTimer);
+    if (startupTimer) timers.clearTimeout(startupTimer);
+    invalidateRequest();
     refreshTimer = null;
-    retryTimer = null;
+    startupTimer = null;
   }
 
   return {
@@ -421,5 +537,6 @@ module.exports = {
   weatherLabel,
   resolveChinaLocation,
   geometryCenter,
-  locationLabel
+  locationLabel,
+  locationId
 };

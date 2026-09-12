@@ -52,6 +52,12 @@ button, summary, input { font: inherit; }
 .panel::-webkit-scrollbar-thumb { border-radius: 5px; background: #ebbdce; }
 
 .header {
+  position: sticky;
+  top: -19px;
+  z-index: 3;
+  margin: -19px -18px 0;
+  padding: 19px 18px 9px;
+  background: #fff7fb;
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
@@ -106,6 +112,9 @@ button:focus-visible { outline: 2px solid rgba(218, 120, 157, .42); outline-offs
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+.renderer-status { margin-top: 8px; color: #945267; font-size: 10px; }
+.renderer-status button { margin-top: 5px; padding: 5px 8px; font-size: 10px; }
 
 .quick-grid { display: grid; grid-template-columns: 1.3fr 1fr 1fr; gap: 6px; }
 .quick-grid button { min-height: 48px; padding: 7px 5px; font-size: 11px; }

@@ -30,7 +30,7 @@ function ignoreProjectFile(filePath) {
 
   // Only omit build artifacts at the application root. A broad `dist` pattern
   // also removes browser bundles such as node_modules/pixi.js/dist/pixi.js.
-  if (["release", "dist", "distribution"].some((name) => isRootPath(relativePath, name))) {
+  if (["release", "dist", "distribution", "tests"].some((name) => isRootPath(relativePath, name))) {
     return true;
   }
 

@@ -18,6 +18,9 @@
       </header>
 
       <div id="weather-summary" class="weather-summary">正在读取天气状态…</div>
+      <div id="renderer-status" class="renderer-status hidden" role="status">
+        <span></span><button type="button" data-action="renderer-retry">重新载入</button>
+      </div>
 
       <section>
         <h2>快捷互动</h2>
@@ -67,7 +70,7 @@
           <input id="always-on-top" type="checkbox">
         </label>
         <label class="switch-row">
-          <span><strong>鼠标穿透</strong><small>可用 Ctrl+Alt+Y 恢复操作</small></span>
+          <span><strong>鼠标穿透</strong><small>可用托盘图标或 Ctrl+Alt+Y 恢复</small></span>
           <input id="click-through" type="checkbox">
         </label>
       </section>

@@ -9,7 +9,10 @@ const clickThrough = document.getElementById('click-through');
 const positionMode = document.getElementById('position-mode');
 const debugSection = document.getElementById('debug-section');
 const debugTriggers = document.getElementById('debug-triggers');
+const rendererStatus = document.getElementById('renderer-status');
 let menuDrag = null;
+let voiceGroupsFingerprint = null;
+let debugTriggersFingerprint = null;
 
 function actionButton(label, action, value) {
   const button = document.createElement('button');
@@ -21,6 +24,10 @@ function actionButton(label, action, value) {
 }
 
 function renderVoiceGroups(groups = []) {
+  const fingerprint = JSON.stringify(groups);
+  if (fingerprint === voiceGroupsFingerprint) return;
+  voiceGroupsFingerprint = fingerprint;
+  const expanded = new Set([...voiceGroups.querySelectorAll('details[open]')].map((item) => item.dataset.group));
   voiceGroups.replaceChildren();
   if (!groups.length) {
     voiceGroups.textContent = '暂无可用台词。';
@@ -29,6 +36,8 @@ function renderVoiceGroups(groups = []) {
   for (const group of groups) {
     const details = document.createElement('details');
     details.className = 'voice-group';
+    details.dataset.group = String(group.id || group.label);
+    details.open = expanded.has(details.dataset.group);
     const summary = document.createElement('summary');
     summary.textContent = `${group.label} · ${group.dialogues.length}`;
     const list = document.createElement('div');
@@ -42,6 +51,9 @@ function renderVoiceGroups(groups = []) {
 }
 
 function renderDebugTriggers(triggers = []) {
+  const fingerprint = JSON.stringify(triggers);
+  if (fingerprint === debugTriggersFingerprint) return;
+  debugTriggersFingerprint = fingerprint;
   debugTriggers.replaceChildren();
   debugSection.classList.toggle('hidden', !triggers.length);
   for (const trigger of triggers) {
@@ -55,6 +67,9 @@ function render(state) {
   weatherAction.lastChild.textContent = state.weatherReady ? ' 当前天气' : ' 设置天气';
   alwaysOnTop.checked = Boolean(state.alwaysOnTop);
   clickThrough.checked = Boolean(state.clickThrough);
+  rendererStatus.classList.toggle('hidden', !state.rendererStatus || state.rendererStatus === 'ready');
+  rendererStatus.querySelector('span').textContent = state.rendererStatus === 'failed'
+    ? '角色载入失败，可点击重新载入。' : '角色正在载入或恢复，暂不播放语音。';
   positionMode.textContent = state.menuPositionMode === 'manual'
     ? '已记住自定义位置'
     : '自动停靠人物侧边';
@@ -72,6 +87,8 @@ async function runAction(action, value) {
 
 function updateMenuPosition(event, final = false) {
   if (!menuDrag) return;
+  if (!menuDrag.moved && Math.hypot(event.screenX - menuDrag.startX, event.screenY - menuDrag.startY) < 4) return;
+  menuDrag.moved = true;
   window.petMenu.moveWindow(
     Math.round(event.screenX - menuDrag.offsetX),
     Math.round(event.screenY - menuDrag.offsetY),
@@ -81,7 +98,8 @@ function updateMenuPosition(event, final = false) {
 
 header.addEventListener('pointerdown', (event) => {
   if (event.button !== 0 || event.target.closest('button')) return;
-  menuDrag = { pointerId: event.pointerId, offsetX: event.clientX, offsetY: event.clientY };
+  menuDrag = { pointerId: event.pointerId, offsetX: event.clientX, offsetY: event.clientY,
+    startX: event.screenX, startY: event.screenY, moved: false };
   header.setPointerCapture(event.pointerId);
   event.preventDefault();
 });
