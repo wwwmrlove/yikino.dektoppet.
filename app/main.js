@@ -12,6 +12,7 @@ const { createJsonStore } = require('./json-store');
 const { calculateMenuBounds } = require('./menu-placement');
 const { calculatePetBounds } = require('./pet-placement');
 const { installSafeLogging } = require('./safe-logging');
+const { SELECTABLE_EXPRESSIONS, isSelectableExpression } = require('./expression-constants');
 const jsonStore = createJsonStore(fs);
 
 // An isolated development profile keeps recovery tests away from personal settings.
@@ -472,6 +473,7 @@ function petMenuState() {
     weatherSummary: weather ? `${weather.city} · ${weather.label}` : '尚未设置天气地区',
     menuPositionMode: savedState.petMenuPositionMode === 'manual' ? 'manual' : 'auto',
     rendererStatus: rendererRecovery?.getState() || 'loading',
+    expressions: SELECTABLE_EXPRESSIONS.map((item) => ({ ...item })),
     voiceGroups: getVoiceGroups(),
     debugTriggers: getDebugTriggers()
   };
@@ -622,8 +624,12 @@ function runPetMenuAction(payload = {}) {
   let keepOpen = false;
 
   if (action === 'expression') {
-    if (['default', 'soft_smile', 'annoyed', 'surprised', 'worried'].includes(value)) {
+    // Validation lives with the expression list so the menu, the IPC layer and
+    // the renderer can never disagree about which names are selectable.
+    if (isSelectableExpression(value)) {
       sendExpression(value);
+    } else {
+      console.warn(`Ignoring unknown expression selection: ${String(value)}`);
     }
   } else if (action === 'random-speech') {
     sendRandomSpeech();

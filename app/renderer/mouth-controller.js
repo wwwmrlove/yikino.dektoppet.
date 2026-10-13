@@ -23,9 +23,22 @@
     worried: 3, surprised: 5, speak_a: 5, speak_o: 7
   });
   const SPEECH_THRESHOLDS = Object.freeze([0.08, 0.3, 0.62]);
+  const VIOLATION_WARNING_INTERVAL_MS = 5000;
+  const onViolationRef = { current: null };
 
   function getPose(expression, speaking, amplitude) {
-    if (!speaking) return POSES[IDLE_POSE[expression] ?? 0];
+    if (!speaking) {
+      const index = IDLE_POSE[expression];
+      // Falling back to POSES[0] silently used to make the eyes follow a new
+      // expression while the mouth stayed on the default pose, with nothing
+      // logged anywhere. Report it instead: the expression contract test keeps
+      // IDLE_POSE in sync with EXPRESSION_PARAMETERS, so a miss is a real bug.
+      if (index === undefined || index < 0 || index >= POSES.length) {
+        onViolationRef.current?.('Unknown idle expression, using the default pose:', expression);
+        return POSES[0];
+      }
+      return POSES[index];
+    }
     const level = Number.isFinite(amplitude) ? Math.max(0, Math.min(1, amplitude)) : 0;
     if (level >= SPEECH_THRESHOLDS[2]) return POSES[6];
     if (level >= SPEECH_THRESHOLDS[1]) return POSES[5];
@@ -34,6 +47,7 @@
   }
 
   function create(core, getId, onViolation = console.error) {
+    onViolationRef.current = onViolation;
     const parts = PARTS.map((id) => ({ id, key: getId(id), index: core.getPartIndex(getId(id)) }));
     const formId = getId('ParamMouthForm');
     const openId = getId('ParamMouthOpenY');
@@ -45,13 +59,21 @@
     }
     let expected = POSES[0];
     let warningShown = false;
+    let violationCount = 0;
+    let lastApplied = null;
+    let lastWarningAt = 0;
 
     function apply(expression, speaking, amplitude) {
       expected = getPose(expression, speaking, amplitude);
       core.setParameterValueById(formId, expected.form);
       core.setParameterValueById(openId, expected.open);
       for (const part of parts) core.setPartOpacityById(part.key, part.id === expected.part ? 1 : 0);
+      lastApplied = { expression, speaking, part: expected.part, form: expected.form, open: expected.open };
       return expected;
+    }
+
+    function getAppliedState() {
+      return lastApplied;
     }
 
     function inspect() {
@@ -72,14 +94,27 @@
     core.update = function updateWithMouthAudit(...args) {
       const result = update.apply(this, args);
       const state = inspect();
-      if (!state.valid && !warningShown) {
-        warningShown = true;
-        onViolation('Final mouth visibility invariant failed:', state);
+      if (!state.valid) {
+        violationCount += 1;
+        // Throttled instead of permanently silent: warningShown used to latch on
+        // the first failure, so a long run could hit every frame with nothing in
+        // the log to review afterwards.
+        const now = Date.now();
+        if (!warningShown || now - lastWarningAt >= VIOLATION_WARNING_INTERVAL_MS) {
+          warningShown = true;
+          lastWarningAt = now;
+          onViolation('Final mouth visibility invariant failed:', state, {
+            violationCount,
+            applied: lastApplied
+          });
+        }
       }
       return result;
     };
-    return { apply, inspect };
+    return { apply, inspect, getAppliedState, getViolationCount: () => violationCount };
   }
 
-  return { PARTS, SPEECH_THRESHOLDS, getPose, create };
+  // IDLE_POSE and POSES are exported so the expression contract test can prove
+  // that every expression the renderer can apply has a matching mouth pose.
+  return { PARTS, POSES, IDLE_POSE, SPEECH_THRESHOLDS, getPose, create };
 });
