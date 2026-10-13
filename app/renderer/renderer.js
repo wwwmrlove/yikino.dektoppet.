@@ -41,8 +41,17 @@ let speechToken = 0;
 let lastReceivedSpeechToken = 0;
 let interactionClicks = [];
 let interactionClickTimer = null;
+let interactionReportToken = 0;
 let rapidClickLockedUntil = 0;
 let mouthController = null;
+// Every expression change bumps this. A pending restore timer only wins if no
+// newer decision was made in the meantime, which is what keeps a stale click
+// timer from overwriting a later speech or manual selection.
+let expressionRestoreToken = 0;
+// Click feedback that arrived while a line was playing and could not be shown
+// yet, so the visual reaction lands with the queued click line instead of
+// several seconds earlier (or never).
+let pendingClickFeedback = null;
 
 const HIT_MASK_RESOLUTION = 0.5;
 const HIT_MASK_REFRESH_MS = 180;
@@ -55,7 +64,18 @@ const BLINK_OPEN_MS = 125;
 const INTERACTION_SETTLE_MS = 360;
 const RAPID_CLICK_THRESHOLD = 3;
 const RAPID_CLICK_LOCK_MS = 900;
+// Set YUKINO_MOUTH_DEBUG=1 to log the applied expression, mouth Part and the
+// accumulated mouth-invariant violation count once per second. Useful for the
+// long-run acceptance pass.
+const MOUTH_DEBUG = typeof process !== 'undefined' && process.env?.YUKINO_MOUTH_DEBUG === '1';
+let lastMouthDebugAt = 0;
 
+// ParamMouthForm / ParamMouthOpenY are no longer meaningful here:
+// applyActiveExpression() deliberately skips them and mouth-controller.js sets
+// both unconditionally from its own calibrated POSES table every frame. They
+// are kept only so the two files stay visually comparable. The eye parameters
+// below ARE applied, so changing ParamEyeLOpen/ParamEyeROpen does take effect
+// (remember that the automatic blink multiplies them).
 const EXPRESSION_PARAMETERS = Object.freeze({
   default:     { ParamExpression: 0, ParamMouthForm: 0,    ParamMouthOpenY: 0,   ParamEyeLOpen: 1,   ParamEyeROpen: 1 },
   half_blink:  { ParamExpression: 0, ParamMouthForm: 0,    ParamMouthOpenY: 0,   ParamEyeLOpen: 0.5, ParamEyeROpen: 0.5 },
@@ -221,14 +241,40 @@ function applyActiveExpression() {
   );
 
   mouthController?.apply(activeExpression, isSpeaking, speechMouthLevel);
+
+  if (MOUTH_DEBUG && performance.now() - lastMouthDebugAt > 1000) {
+    lastMouthDebugAt = performance.now();
+    const applied = mouthController?.getAppliedState?.();
+    console.info('mouth', JSON.stringify({
+      expression: activeExpression,
+      persistent: persistentExpression,
+      speaking: isSpeaking,
+      level: Number(speechMouthLevel.toFixed(3)),
+      part: applied?.part,
+      violations: mouthController?.getViolationCount?.() ?? 0
+    }));
+  }
 }
 
 function updateSpeechMouth() {
-  if (!isSpeaking || !audioAnalyser || !speechSamples) {
-    speechMouthLevel *= 0.62;
-    if (speechMouthLevel < 0.01) speechMouthLevel = 0;
-    return;
+  if (!isSpeaking) {
+    // A click that landed mid-line shows its reaction now, while the queued
+    // click line is still being awaited. Settling here (rather than in
+    // finishSpeech) means a takeover by the next line cannot cancel it through
+    // the shared expressionRestoreToken.
+    if (pendingClickFeedback) {
+      const feedback = pendingClickFeedback;
+      pendingClickFeedback = null;
+      settleExpression(feedback.name, feedback.remainingMs);
+    }
+    if (!audioAnalyser || !speechSamples) {
+      speechMouthLevel *= 0.62;
+      if (speechMouthLevel < 0.01) speechMouthLevel = 0;
+      return;
+    }
   }
+
+  if (!audioAnalyser || !speechSamples) return;
 
   audioAnalyser.getFloatTimeDomainData(speechSamples);
   let sumSquares = 0;
@@ -239,8 +285,20 @@ function updateSpeechMouth() {
   speechMouthLevel += (target - speechMouthLevel) * smoothing;
 }
 
-function finishSpeech(token, error = null) {
-  if (!token || token !== speechToken || !isSpeaking) return;
+// Central place for every expression change. restoreAfter > 0 means a temporary
+// expression that must fall back to the persistent selection afterwards.
+// Returns false when the change was rejected (model not ready yet, or an
+// unknown name) so a caller can stay consistent with the renderer instead of
+// dispatching a line whose expression never appeared.
+function settleExpression(name, restoreAfter = 0) {
+  if (!model || !EXPRESSION_PARAMETERS[name]) return false;
+  const restoreAt = restoreAfter > 0 ? performance.now() + restoreAfter : 0;
+  setExpression(name, restoreAfter);
+  return activeExpression === name && activeExpressionExpiresAt === restoreAt;
+}
+
+function finishSpeech(token, error = null, { skipExpressionRestore = false } = {}) {
+  if (!token || token !== speechToken || !isSpeaking) return false;
   // Invalidate awaited resume()/play() calls before tearing down media.
   speechToken = 0;
   isSpeaking = false;
@@ -251,16 +309,18 @@ function finishSpeech(token, error = null) {
   activeAudio = null;
   audioAnalyser = null;
   speechSamples = null;
-  const remainingExpressionMs = expressionBeforeSpeechExpiresAt > 0
-    ? expressionBeforeSpeechExpiresAt - performance.now()
-    : 0;
-  if (expressionBeforeSpeechExpiresAt === 0 || remainingExpressionMs > 0) {
-    setExpression(expressionBeforeSpeech || 'default', Math.max(0, remainingExpressionMs));
-  } else {
-    setExpression(persistentExpression);
+  if (!skipExpressionRestore) {
+    const remainingExpressionMs = expressionBeforeSpeechExpiresAt > 0
+      ? expressionBeforeSpeechExpiresAt - performance.now()
+      : 0;
+    if (expressionBeforeSpeechExpiresAt === 0 || remainingExpressionMs > 0) {
+      setExpression(expressionBeforeSpeech || 'default', Math.max(0, remainingExpressionMs));
+    } else {
+      setExpression(persistentExpression);
+    }
+    expressionBeforeSpeech = 'default';
+    expressionBeforeSpeechExpiresAt = 0;
   }
-  expressionBeforeSpeech = 'default';
-  expressionBeforeSpeechExpiresAt = 0;
   window.desktopPet.speechEnded(token);
   if (error) {
     const previousContext = audioContext;
@@ -269,6 +329,7 @@ function finishSpeech(token, error = null) {
     console.error('Unable to play Yukino voice:', error);
     showHint('这句语音未能完成，可重新点播。', 2600);
   }
+  return true;
 }
 
 function disposeAudio(audio, source) {
@@ -286,14 +347,25 @@ async function speakDialogue(dialogue) {
   const token = Number(dialogue?.speechToken);
   if (!Number.isSafeInteger(token) || token <= lastReceivedSpeechToken) return;
   lastReceivedSpeechToken = token;
-  if (isSpeaking) finishSpeech(speechToken);
+  // Take over without letting the interrupted line restore (and thereby
+  // overwrite) the pre-speech expression. The previous code let finishSpeech()
+  // restore the old face and then immediately re-saved that restored value as
+  // the target, which flashed the old expression for one frame on every
+  // handover and lost the real pre-speech intent.
+  const tookOver = isSpeaking
+    ? finishSpeech(speechToken, null, { skipExpressionRestore: true })
+    : false;
   speechToken = token;
   activeAudio = null;
   activeAudioSource = null;
   audioAnalyser = null;
   speechSamples = null;
 
-  if (!isSpeaking) {
+  if (!tookOver) {
+    // A fresh line: remember what the user was showing so it can come back.
+    // On a handover the target captured by the first line must be preserved,
+    // otherwise the interrupted line's own dialogue expression becomes the
+    // target and the user's manual selection is lost.
     expressionBeforeSpeech = activeExpression;
     expressionBeforeSpeechExpiresAt = activeExpressionExpiresAt;
   }
@@ -358,10 +430,22 @@ function reportClassifiedInteraction(type) {
   window.desktopPet.reportInteraction(type);
 }
 
+// A temporary expression that cannot be shown yet (a line is playing) is
+// remembered so it can land together with its queued line instead of being
+// dropped, which used to make the reaction arrive seconds later with no
+// expression ever having appeared.
+function requestClickFeedback(name, restoreAfterMs) {
+  if (!isSpeaking) settleExpression(name, restoreAfterMs);
+  else pendingClickFeedback = { name, remainingMs: restoreAfterMs };
+}
+
 function registerInteractionClick() {
   const now = performance.now();
   if (now < rapidClickLockedUntil) {
-    if (!isSpeaking) setExpression('annoyed', 1500);
+    // Swallowed by the debounce window: no new click is counted, so the
+    // classification baseline must not drift either.
+    interactionClicks = [];
+    requestClickFeedback('annoyed', 1500);
     return;
   }
 
@@ -372,20 +456,23 @@ function registerInteractionClick() {
   if (interactionClicks.length >= RAPID_CLICK_THRESHOLD) {
     interactionClicks = [];
     rapidClickLockedUntil = now + RAPID_CLICK_LOCK_MS;
-    if (!isSpeaking) setExpression('annoyed', 1800);
+    requestClickFeedback('annoyed', 1800);
+    // Cancel the pending settle so a burst can only ever report one type.
+    // Without this the burst reported 'rapid' here and 'double' 360ms later.
+    interactionReportToken += 1;
     reportClassifiedInteraction('rapid');
     return;
   }
 
-  if (!isSpeaking) {
-    setExpression(interactionClicks.length === 2 ? 'surprised' : 'soft_smile',
-      interactionClicks.length === 2 ? 1300 : 900);
-  }
+  const isDouble = interactionClicks.length === 2;
+  requestClickFeedback(isDouble ? 'surprised' : 'soft_smile', isDouble ? 1300 : 900);
 
+  const reportToken = ++interactionReportToken;
   interactionClickTimer = window.setTimeout(() => {
+    interactionClickTimer = null;
+    if (reportToken !== interactionReportToken) return; // superseded by a rapid burst
     const type = interactionClicks.length >= 2 ? 'double' : 'single';
     interactionClicks = [];
-    interactionClickTimer = null;
     reportClassifiedInteraction(type);
   }, INTERACTION_SETTLE_MS);
 }
@@ -395,19 +482,29 @@ function setExpression(name, restoreAfter = 0) {
   if (!EXPRESSION_PARAMETERS[name]) return;
   window.clearTimeout(resetExpressionTimer);
   resetExpressionTimer = null;
+  const restoreToken = ++expressionRestoreToken;
   activeExpression = name;
   activeExpressionExpiresAt = restoreAfter > 0
     ? performance.now() + restoreAfter
     : 0;
   if (restoreAfter > 0) {
-    resetExpressionTimer = window.setTimeout(() => setExpression(persistentExpression), restoreAfter);
+    resetExpressionTimer = window.setTimeout(() => {
+      // A newer speech, manual selection or click has since taken over, so this
+      // stale timer must not drag the face back to an older persistent choice.
+      if (restoreToken !== expressionRestoreToken) return;
+      setExpression(persistentExpression);
+    }, restoreAfter);
   }
 }
 
 function setUserExpression(name) {
   if (!model || !EXPRESSION_PARAMETERS[name]) return;
+  // An explicit manual choice outranks a click reaction that has not been shown
+  // yet; otherwise the deferred click face would appear after the user picked.
+  pendingClickFeedback = null;
   persistentExpression = name;
   if (isSpeaking) {
+    // This is the restore target a queued handover must carry forward.
     expressionBeforeSpeech = name;
     expressionBeforeSpeechExpiresAt = 0;
   }

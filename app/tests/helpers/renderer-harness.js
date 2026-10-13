@@ -5,6 +5,14 @@ const path = require('node:path');
 const vm = require('node:vm');
 const YukinoMouth = require('../../renderer/mouth-controller');
 
+// Part ids the mouth controller touches; getPartIndex must resolve these or it
+// cannot tell which drawables belong to which mouth.
+const MOUTH_PART_IDS = [
+  'MOUTH_00_DEFAULT_EXACT', 'MOUTH_01_CLOSED_NEUTRAL', 'MOUTH_02_SMILE',
+  'MOUTH_03_TROUBLED_FLAT', 'MOUTH_04_SMALL_OPEN', 'MOUTH_05_MEDIUM_OPEN',
+  'MOUTH_06_WIDE_OPEN', 'MOUTH_07_ROUNDED_VOWEL'
+];
+
 function deferred() {
   let resolve, reject;
   const promise = new Promise((yes, no) => { resolve = yes; reject = no; });
@@ -58,8 +66,57 @@ function createRendererHarness(control = {}) {
   });
   const source = fs.readFileSync(path.join(__dirname, '../../renderer/renderer.js'), 'utf8');
   vm.runInContext(source.replace(/\bboot\(\);\s*$/, ''), context);
-  vm.runInContext('model = {};', context);
+  // Model double: records every drawable parameter the renderer applies.
+  //
+  // This used to be `model = {}`, which made applyActiveExpression() return at
+  // its `if (!core) return` guard, so the expression tests only ever asserted
+  // state variables and never a single applied parameter.
+  const modelParameters = new Map();
+  const modelPartOpacities = new Map();
+  const parameterLog = [];
+  const setParameterValueById = (id, value) => {
+    if (id === undefined || id === null) return;
+    modelParameters.set(id, value);
+    parameterLog.push({ id, value });
+  };
+  const modelCore = {
+    setParameterValueById,
+    getParameterValueById: (id) => modelParameters.get(id),
+    getParameterIndex: (id) => (id === undefined ? -1 : 0),
+    getPartIndex: (id) => MOUTH_PART_IDS.indexOf(id),
+    setPartOpacityById: (id, value) => modelPartOpacities.set(id, value),
+    getPartOpacityById: (id) => modelPartOpacities.get(id) ?? 0,
+    getDrawableCount: () => 0,
+    getDrawableParentPartIndex: () => -1,
+    getDrawableOpacity: () => 0,
+    update() {}
+  };
+  vm.runInContext('model = null;', context);
+  context.modelCore = modelCore;
+  vm.runInContext('getIdSafe = (id) => id;', context);
+  vm.runInContext(
+    'model = { internalModel: { coreModel: modelCore, getIdSafe: (id) => id, on() {} } };',
+    context
+  );
+  // Real mouth controller over the recording core, so applyActiveExpression()
+  // exercises the actual pose selection instead of a no-op optional call.
+  const mouthViolations = [];
+  const controller = YukinoMouth.create(
+    modelCore,
+    (id) => id,
+    (...args) => mouthViolations.push(args)
+  );
+  context.testMouthController = controller;
+  vm.runInContext('mouthController = testMouthController;', context);
+
   function run(code) { return vm.runInContext(code, context); }
+  // Simulates one rendered frame: the engine emits beforeModelUpdate, which is
+  // what applyActiveExpression is registered for. Tests call this instead of
+  // calling applyActiveExpression() by hand.
+  function applyFrame() {
+    run('applyActiveExpression();');
+    return { parameters: new Map(modelParameters), log: parameterLog.slice() };
+  }
   function advance(ms) {
     const until = now + ms;
     for (;;) {
@@ -72,7 +129,13 @@ function createRendererHarness(control = {}) {
     }
     now = until;
   }
-  return { context, callbacks, calls, audios, contexts, errors, timers, run, advance };
+  return {
+    context, callbacks, calls, audios, contexts, errors, timers, run, advance, applyFrame,
+    modelParameters, modelPartOpacities, parameterLog, modelCore, mouthViolations,
+    mouthController: controller,
+    parameter: (id) => modelParameters.get(id),
+    clearParameterLog: () => { parameterLog.length = 0; }
+  };
 }
 
 module.exports = { createRendererHarness, deferred };
